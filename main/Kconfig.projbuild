@@ -31,10 +31,16 @@ menu "Weight Sensor Configuration"
             Tare weight to subtract from the measured weight. This can be used to zero out the scale when there is a container on it.
 
     config WEIGHT_SCALE
-        float "Weight scale"
-        default 1.0
+        hex "Weight scale"
+        default 0x100
         help
             Scale factor to convert raw sensor readings to actual weight.
+
+    config WEIGHT_GAIN
+        int "HX711 Gain"
+        default 128
+        help
+            Gain factor for the HX711. Common values are 128, 64, and 32.
 
     config ESP_WIFI_SSID
         string "WiFi SSID"

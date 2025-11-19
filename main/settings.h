@@ -8,10 +8,10 @@ typedef struct {
     char *update_url;
     char *password;
     int32_t weight_tare;
-    float weight_scale;
+    int32_t weight_scale;
     hx711_gain_t weight_gain;
 } settings_t;
 
-esp_err_t nvs_init(settings_t *settings);
+esp_err_t settings_init(settings_t *settings);
 
 #endif // SETTINGS_H

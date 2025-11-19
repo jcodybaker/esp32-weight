@@ -28,6 +28,8 @@ static const char *TAG = "settings";
 
 esp_err_t settings_init(settings_t *settings)
 {
+    settings->update_url = NULL;
+    settings->password = NULL;
     // Open NVS handle
     ESP_LOGI(TAG, "\nOpening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -38,9 +40,20 @@ esp_err_t settings_init(settings_t *settings)
     }
 
     ESP_LOGI(TAG, "\nReading 'update_url' from NVS...");
-    err = nvs_get_str(settings_handle, "update_url", &settings->update_url);
+    size_t str_size = 0;
+    err = nvs_get_str(settings_handle, "update_url", settings->update_url, &str_size);
     switch (err) {
         case ESP_OK:
+            settings->update_url = malloc(str_size);
+            if (settings->update_url == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for update_url");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "update_url", settings->update_url, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading update_url!", esp_err_to_name(err));
+                return err;
+            }
             ESP_LOGI(TAG, "Read 'update_url' = %s", settings->update_url);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
@@ -53,9 +66,19 @@ esp_err_t settings_init(settings_t *settings)
     }
 
     ESP_LOGI(TAG, "\nReading 'password' from NVS...");
-    err = nvs_get_str(settings_handle, "password", &settings->password);
+    err = nvs_get_str(settings_handle, "password", settings->password, &str_size);
     switch (err) {
         case ESP_OK:
+            settings->password = malloc(str_size);
+            if (settings->password == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for password");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "password", settings->password, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading password!", esp_err_to_name(err));
+                return err;
+            }
             ESP_LOGI(TAG, "Read 'password' = %s", settings->password);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
@@ -83,14 +106,14 @@ esp_err_t settings_init(settings_t *settings)
     }
     
     ESP_LOGI(TAG, "\nReading 'weight_scale' from NVS...");
-    err = nvs_get_blob(settings_handle, "weight_scale", &settings->weight_scale, sizeof(settings->weight_scale));
+    err = nvs_get_i32(settings_handle, "weight_scale", &settings->weight_scale);
     switch (err) {
         case ESP_OK:
-            ESP_LOGI(TAG, "Read 'weight_scale' = %f", settings->weight_scale);
+            ESP_LOGI(TAG, "Read 'weight_scale' = %d", settings->weight_scale);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
             settings->weight_scale = CONFIG_WEIGHT_SCALE;
-            ESP_LOGI(TAG, "No value for 'weight_scale'; using default = %f", settings->weight_scale);
+            ESP_LOGI(TAG, "No value for 'weight_scale'; using default = %d", settings->weight_scale);
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading weight_scale!", esp_err_to_name(err));
@@ -98,9 +121,11 @@ esp_err_t settings_init(settings_t *settings)
     }
 
     ESP_LOGI(TAG, "\nReading 'weight_gain' from NVS...");
-    err = nvs_get_i32(settings_handle, "weight_gain", &settings->weight_gain);
+    int32_t weight_gain_value;
+    err = nvs_get_i32(settings_handle, "weight_gain", &weight_gain_value);
     switch (err) {
         case ESP_OK:
+            settings->weight_gain = (hx711_gain_t)weight_gain_value;
             ESP_LOGI(TAG, "Read 'weight_gain' = %d", settings->weight_gain);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
@@ -111,6 +136,6 @@ esp_err_t settings_init(settings_t *settings)
             ESP_LOGE(TAG, "Error (%s) reading weight_gain!", esp_err_to_name(err));
             return err;
     }
-    return ESP_OK
+    return ESP_OK;
 }
 
