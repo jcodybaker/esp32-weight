@@ -10,6 +10,8 @@
 #include "wifi.h"
 #include "weight.h"
 #include "ota.h"
+#include "esp_event.h"
+#include "settings.h"
 
 void app_main(void)
 {
@@ -20,6 +22,11 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+
+    settings_t settings;
+    ESP_ERROR_CHECK(settings_init(&settings));
 
     wifi_init_sta();
     weight_init();

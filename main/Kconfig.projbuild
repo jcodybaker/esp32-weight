@@ -24,6 +24,18 @@ menu "Weight Sensor Configuration"
         int "Samples to average"
         default 5
 
+    config WEIGHT_TARE
+        int "Tare weight"
+        default 0
+        help
+            Tare weight to subtract from the measured weight. This can be used to zero out the scale when there is a container on it.
+
+    config WEIGHT_SCALE
+        float "Weight scale"
+        default 1.0
+        help
+            Scale factor to convert raw sensor readings to actual weight.
+
     config ESP_WIFI_SSID
         string "WiFi SSID"
         default "myssid"
@@ -95,4 +107,16 @@ menu "Weight Sensor Configuration"
         help
             URL of server which hosts the firmware
             image.
+
+    config HTTPD_BASIC_AUTH_USERNAME
+        string "Basic Authenticate User Name"
+        default "admin"
+        help
+            The client's user name which used for basic authenticate.
+
+    config HTTPD_BASIC_AUTH_PASSWORD
+        string "Basic Authenticate Password"
+        default "admin"
+        help
+            The client's password which used for basic authenticate.
 endmenu

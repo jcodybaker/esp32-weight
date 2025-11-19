@@ -6,11 +6,13 @@
 #include <hx711.h>
 
 #include "weight.h"
+#include "settings.h"
 
 static const char *TAG = "hx711";
 
 static void weight(void *pvParameters)
 {
+    settings_t settings = *(settings_t *)pvParameters;
     hx711_t dev =
     {
         .dout = CONFIG_WEIGHT_DOUT_GPIO,
@@ -45,7 +47,7 @@ static void weight(void *pvParameters)
     }
 }
 
-void weight_init()
+void weight_init(settings_t *settings)
 {
-    xTaskCreate(weight, "weight", configMINIMAL_STACK_SIZE * 5, NULL, 5, NULL);
+    xTaskCreate(weight, "weight", configMINIMAL_STACK_SIZE * 5, settings, 5, NULL);
 }
