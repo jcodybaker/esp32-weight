@@ -74,7 +74,7 @@ static esp_err_t basic_auth_get_handler(httpd_req_t *req)
             ESP_LOGE(TAG, "No auth value received");
         }
 
-        char *auth_credentials = http_auth_basic(wrapper->settings->password, wrapper->settings->password);
+        char *auth_credentials = http_auth_basic("admin", wrapper->settings->password);
         ESP_LOGI(TAG, "Expected Authorization: %s", auth_credentials);
         ESP_LOGI(TAG, "Received Authorization: %s", buf);
         ESP_LOGI(TAG, "password: %s", wrapper->settings->password);
