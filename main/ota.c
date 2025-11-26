@@ -21,6 +21,9 @@
 #include "nvs_flash.h"
 #include <sys/socket.h>
 
+#include "ota.h"
+#include "http_server.h"
+
 #define HASH_LEN 32
 
 #ifdef CONFIG_EXAMPLE_FIRMWARE_UPGRADE_BIND_IF
@@ -32,7 +35,10 @@ static const char *bind_interface_name = EXAMPLE_NETIF_DESC_STA;
 #endif
 #endif
 
-static const char *TAG = "simple_ota_example";
+static const char *TAG = "ota";
+
+static int8_t update_in_progress = 0;
+
 extern const uint8_t server_cert_pem_start[] asm("_binary_ca_cert_pem_start");
 extern const uint8_t server_cert_pem_end[] asm("_binary_ca_cert_pem_end");
 
@@ -71,12 +77,15 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 void ota_task(void *pvParameter)
 {
+    settings_t *settings = (settings_t *)pvParameter;
     ESP_LOGI(TAG, "Starting OTA example task");
     esp_http_client_config_t config = {
-        .url = CONFIG_OTA_FIRMWARE_UPGRADE_URL,
+        .url = settings->update_url,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = _http_event_handler,
         .keep_alive_enable = true,
+        .buffer_size = 8192,
+        .buffer_size_tx = 2048,
     };
 
 
@@ -89,6 +98,7 @@ void ota_task(void *pvParameter)
         ESP_LOGI(TAG, "OTA Succeed, Rebooting...");
         esp_restart();
     } else {
+        __atomic_clear(&update_in_progress, __ATOMIC_RELEASE);
         ESP_LOGE(TAG, "Firmware upgrade failed");
     }
 }
@@ -120,9 +130,33 @@ static void get_sha256_of_partitions(void)
     print_sha256(sha_256, "SHA-256 for current firmware: ");
 }
 
-void ota_init(void)
+static esp_err_t ota_post_handler(httpd_req_t *req) {
+    if (__atomic_test_and_set(&update_in_progress, __ATOMIC_ACQUIRE)) {
+        ESP_LOGW(TAG, "OTA update already in progress");
+        httpd_resp_send_custom_err(req, "409", "Confict: OTA update already in progress");
+        return ESP_FAIL;
+    }
+    settings_t *settings = (settings_t *)req->user_ctx;
+    return xTaskCreate(&ota_task, "ota_task", 8192, settings, 5, NULL);
+}
+
+static httpd_uri_t ota_post_uri = {
+    .uri       = "/ota",
+    .method    = HTTP_POST,
+    .handler   = ota_post_handler,
+    .user_ctx  = NULL  // Will be set during initialization
+};
+
+
+esp_err_t ota_init(settings_t *settings, httpd_handle_t http_server)
 {
     ESP_LOGI(TAG, "OTA init start");
+    ota_post_uri.user_ctx = settings;
     get_sha256_of_partitions();
-    xTaskCreate(&ota_task, "ota_example_task", 8192, NULL, 5, NULL);
+    esp_err_t err = httpd_register_uri_handler_with_basic_auth(settings, http_server, &ota_post_uri);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) registering settings GET handler!", esp_err_to_name(err));
+        return err;
+    }
+    return ESP_OK;
 }
