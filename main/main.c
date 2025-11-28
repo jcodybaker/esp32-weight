@@ -27,12 +27,14 @@ void app_main(void)
 
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    wifi_init_sta();
+    
     settings_t *settings = malloc(sizeof(settings_t));
     ESP_LOGI("main", "app_main settings ptr %p", settings);
 
+    ESP_ERROR_CHECK(settings_init(settings));
+    wifi_init(settings);
     httpd_handle_t http_server = http_server_init();
-    ESP_ERROR_CHECK(settings_init(settings, http_server));
+    settings_register(settings, http_server);
     weight_init(settings, http_server);
     ota_init(settings, http_server);
 }

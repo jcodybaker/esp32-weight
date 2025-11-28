@@ -16,6 +16,7 @@
 */
 #include <stdio.h>
 #include <inttypes.h>
+#include <ctype.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -26,6 +27,37 @@
 #include "http_server.h"
 
 static const char *TAG = "settings";
+
+// URL decode function - decodes %XX sequences in place
+static void url_decode(char *dst, const char *src) {
+    char a, b;
+    while (*src) {
+        if ((*src == '%') &&
+            ((a = src[1]) && (b = src[2])) &&
+            (isxdigit(a) && isxdigit(b))) {
+            if (a >= 'a')
+                a -= 'a'-'A';
+            if (a >= 'A')
+                a -= ('A' - 10);
+            else
+                a -= '0';
+            if (b >= 'a')
+                b -= 'a'-'A';
+            if (b >= 'A')
+                b -= ('A' - 10);
+            else
+                b -= '0';
+            *dst++ = 16*a+b;
+            src+=3;
+        } else if (*src == '+') {
+            *dst++ = ' ';
+            src++;
+        } else {
+            *dst++ = *src++;
+        }
+    }
+    *dst++ = '\0';
+}
 
 static const char *settings_get_html = ""
     "<!DOCTYPE html>"
@@ -65,6 +97,13 @@ static const char *settings_get_html = ""
     "<option value='64'>64</option>"
     "<option value='32'>32</option>"
     "</select>"
+    "<label for='wifi_ssid'>Wifi SSID:</label>"
+    "<input type='text' id='wifi_ssid' name='wifi_ssid' placeholder='Wifi SSID'>"
+    "<label for='wifi_password'>Wifi Password:</label>"
+    "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>"
+    "<label for='wifi_ap_fallback_disable'>"
+    "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'> Disable WiFi AP Fallback"
+    "</label>"
     "<button type='submit'>Update Settings</button>"
     "</form>"
     "<form action='/ota' method='POST'>"
@@ -118,6 +157,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     settings_t *settings = (settings_t *)req->user_ctx;
     esp_err_t err = ESP_OK;
     bool updated = false;
+    bool restart_needed = false;
     
     // Get the query string length
     size_t query_len = httpd_req_get_url_query_len(req);
@@ -154,6 +194,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     
     // Check and update password
     if (httpd_query_key_value(query_buf, "password", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(param_buf, param_buf);  // Decode URL encoding
         if (strlen(param_buf) > 0) {
             err = nvs_set_str(settings_handle, "password", param_buf);
             if (err == ESP_OK) {
@@ -171,6 +212,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     
     // Check and update update_url
     if (httpd_query_key_value(query_buf, "update_url", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(param_buf, param_buf);  // Decode URL encoding
         if (strlen(param_buf) > 0) {
             err = nvs_set_str(settings_handle, "update_url", param_buf);
             if (err == ESP_OK) {
@@ -230,12 +272,66 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             }
         }
     }
+
+    if (httpd_query_key_value(query_buf, "wifi_ssid", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(param_buf, param_buf);  // Decode URL encoding
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_str(settings_handle, "wifi_ssid", param_buf);
+            if (err == ESP_OK) {
+                if (settings->wifi_ssid != NULL && (strcmp(settings->wifi_ssid, CONFIG_ESP_WIFI_SSID) != 0)) {
+                    free(settings->wifi_ssid);
+                }
+                settings->wifi_ssid = strdup(param_buf);
+                updated = true;
+                ESP_LOGI(TAG, "Updated ssid");  
+                restart_needed = true;
+            } else {
+                ESP_LOGE(TAG, "Failed to write wifi_ssid to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+
+    if (httpd_query_key_value(query_buf, "wifi_password", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(param_buf, param_buf);  // Decode URL encoding
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_str(settings_handle, "wifi_password", param_buf);
+            if (err == ESP_OK) {
+                if (settings->wifi_password != NULL && (strcmp(settings->wifi_password, CONFIG_ESP_WIFI_PASSWORD) != 0)) {
+                    free(settings->wifi_password);
+                }
+                settings->wifi_password = strdup(param_buf);
+                updated = true;
+                ESP_LOGI(TAG, "Updated wifi_password");
+                restart_needed = true;
+            } else {
+                ESP_LOGE(TAG, "Failed to write wifi_password to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+
+    // Check and update wifi_ap_fallback_disable
+    bool wifi_ap_fallback_disable = false;
+    if (httpd_query_key_value(query_buf, "wifi_ap_fallback_disable", param_buf, sizeof(param_buf)) == ESP_OK) {
+        wifi_ap_fallback_disable = true;
+    }
+    err = nvs_set_u8(settings_handle, "wifi_ap_fb_dis", wifi_ap_fallback_disable ? 1 : 0);
+    if (err == ESP_OK) {
+        settings->wifi_ap_fallback_disable = wifi_ap_fallback_disable;
+        updated = true;
+        ESP_LOGI(TAG, "Updated wifi_ap_fallback_disable to %d", wifi_ap_fallback_disable);
+    } else {
+        ESP_LOGE(TAG, "Failed to write wifi_ap_fallback_disable to NVS: %s", esp_err_to_name(err));
+    }
     
     // Commit changes to NVS
     if (updated) {
         err = nvs_commit(settings_handle);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to commit settings to NVS: %s", esp_err_to_name(err));
+        }
+        if (restart_needed) {
+            ESP_LOGI(TAG, "Restarting to apply new WiFi settings...");
+            esp_restart();
         }
     }
     
@@ -265,10 +361,12 @@ static httpd_uri_t settings_get_uri = {
     .handler   = settings_get_handler,
 };
 
-esp_err_t settings_init(settings_t *settings, httpd_handle_t http_server)
+esp_err_t settings_init(settings_t *settings)
 {
     settings->update_url = NULL;
     settings->password = NULL;
+    settings->wifi_ssid = NULL;
+    settings->wifi_password = NULL;
     // Open NVS handle
     ESP_LOGI(TAG, "\nOpening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -280,7 +378,7 @@ esp_err_t settings_init(settings_t *settings, httpd_handle_t http_server)
 
     ESP_LOGI(TAG, "\nReading 'update_url' from NVS...");
     size_t str_size = 0;
-    err = nvs_get_str(settings_handle, "update_url", settings->update_url, &str_size);
+    err = nvs_get_str(settings_handle, "update_url", NULL, &str_size);
     switch (err) {
         case ESP_OK:
             settings->update_url = malloc(str_size);
@@ -305,7 +403,7 @@ esp_err_t settings_init(settings_t *settings, httpd_handle_t http_server)
     }
 
     ESP_LOGI(TAG, "\nReading 'password' from NVS...");
-    err = nvs_get_str(settings_handle, "password", settings->password, &str_size);
+    err = nvs_get_str(settings_handle, "password", NULL, &str_size);
     switch (err) {
         case ESP_OK:
             settings->password = malloc(str_size);
@@ -377,8 +475,86 @@ esp_err_t settings_init(settings_t *settings, httpd_handle_t http_server)
             return err;
     }
 
+    ESP_LOGI(TAG, "\nReading 'wifi_ssid' from NVS...");
+    err = nvs_get_str(settings_handle, "wifi_ssid", NULL, &str_size);
+    switch (err) {
+        case ESP_OK:
+            settings->wifi_ssid = malloc(str_size);
+            if (settings->wifi_ssid == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for wifi_ssid");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "wifi_ssid", settings->wifi_ssid, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading wifi_ssid!", esp_err_to_name(err));
+                return err;
+            }
+            ESP_LOGI(TAG, "Read 'wifi_ssid' = %s", settings->wifi_ssid);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->wifi_ssid = CONFIG_ESP_WIFI_SSID;
+            ESP_LOGI(TAG, "Setting 'wifi_ssid' on settings %p", settings);
+            ESP_LOGI(TAG, "No value for 'wifi_ssid'; using default = %s", settings->wifi_ssid);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading wifi_ssid!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'wifi_password' from NVS...");
+    err = nvs_get_str(settings_handle, "wifi_password", NULL, &str_size);
+    switch (err) {
+        case ESP_OK:
+            settings->wifi_password = malloc(str_size);
+            if (settings->wifi_password == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for password");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "wifi_password", settings->wifi_password, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading password!", esp_err_to_name(err));
+                return err;
+            }
+            ESP_LOGI(TAG, "Read 'wifi_password' = %s", settings->wifi_password);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->wifi_password = CONFIG_ESP_WIFI_PASSWORD;
+            ESP_LOGI(TAG, "Setting 'wifi_password' on settings %p", settings);
+            ESP_LOGI(TAG, "No value for 'wifi_password'; using default = %s", settings->wifi_password);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading wifi_password!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'wifi_ap_fallback_disable' from NVS...");
+    uint8_t wifi_ap_fb_dis_value;
+    err = nvs_get_u8(settings_handle, "wifi_ap_fb_dis", &wifi_ap_fb_dis_value);
+    switch (err) {
+        case ESP_OK:
+            settings->wifi_ap_fallback_disable = wifi_ap_fb_dis_value != 0;
+            ESP_LOGI(TAG, "Read 'wifi_ap_fallback_disable' = %d", settings->wifi_ap_fallback_disable);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+#ifdef CONFIG_ESP_WIFI_AP_FALLBACK_DISABLE
+            settings->wifi_ap_fallback_disable = true;
+#else
+            settings->wifi_ap_fallback_disable = false;
+#endif
+            ESP_LOGI(TAG, "No value for 'wifi_ap_fallback_disable'; using default = %d", settings->wifi_ap_fallback_disable);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading wifi_ap_fallback_disable!", esp_err_to_name(err));
+            return err;
+    }
+
+    nvs_close(settings_handle);
+    return ESP_OK;
+}
+
+esp_err_t settings_register(settings_t *settings, httpd_handle_t http_server) {
     settings_post_uri.user_ctx = settings;
-    err = httpd_register_uri_handler_with_basic_auth(settings, http_server, &settings_post_uri);
+    esp_err_t err = httpd_register_uri_handler_with_basic_auth(settings, http_server, &settings_post_uri);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error (%s) registering settings POST handler!", esp_err_to_name(err));
         return err;
