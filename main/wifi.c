@@ -79,7 +79,7 @@ void wifi_configure_softap(void)
     }
     uint8_t ap_mac[6];
     esp_err_t err;
-    esp_netif_t *esp_netif_ap = esp_netif_create_default_wifi_ap();
+    esp_netif_create_default_wifi_ap();
     err = esp_wifi_get_mac(WIFI_IF_AP, ap_mac);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to get AP mac address");

@@ -59,96 +59,142 @@ static void url_decode(char *dst, const char *src) {
     *dst++ = '\0';
 }
 
-static const char *settings_get_html = ""
-    "<!DOCTYPE html>"
-    "<html>"
-    "<head>"
-    "<title>Settings</title>"
-    "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-    "<style>"
-    "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }"
-    "h1 { color: #333; }"
-    "form { background: #f4f4f4; padding: 20px; border-radius: 8px; }"
-    "label { display: block; margin-top: 15px; font-weight: bold; }"
-    "input, select { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }"
-    "button { background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; width: 100%; font-size: 16px; }"
-    "button:hover { background: #45a049; }"
-    ".message { padding: 10px; margin: 10px 0; border-radius: 4px; display: none; }"
-    ".success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }"
-    ".error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }"
-    "</style>"
-    "</head>"
-    "<body>"
-    "<h1>Weight Station Settings</h1>"
-    "<div id='message' class='message'></div>"
-    "<form id='settingsForm'>"
-    "<label for='password'>Password:</label>"
-    "<input type='password' id='password' name='password' placeholder='Leave blank to keep current'>"
-    "<label for='update_url'>Update URL:</label>"
-    "<input type='text' id='update_url' name='update_url' placeholder='Firmware update URL'>"
-    "<label for='weight_tare'>Weight Tare:</label>"
-    "<input type='number' id='weight_tare' name='weight_tare' placeholder='Tare value'>"
-    "<label for='weight_scale'>Weight Scale:</label>"
-    "<input type='number' id='weight_scale' name='weight_scale' placeholder='Scale value'>"
-    "<label for='weight_gain'>Weight Gain:</label>"
-    "<select id='weight_gain' name='weight_gain'>"
-    "<option value=''>Select gain...</option>"
-    "<option value='128'>128</option>"
-    "<option value='64'>64</option>"
-    "<option value='32'>32</option>"
-    "</select>"
-    "<label for='wifi_ssid'>Wifi SSID:</label>"
-    "<input type='text' id='wifi_ssid' name='wifi_ssid' placeholder='Wifi SSID'>"
-    "<label for='wifi_password'>Wifi Password:</label>"
-    "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>"
-    "<label for='wifi_ap_fallback_disable'>"
-    "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'> Disable WiFi AP Fallback"
-    "</label>"
-    "<button type='submit'>Update Settings</button>"
-    "</form>"
-    "<form action='/ota' method='POST'>"
-    "<button type='submit'>Start OTA Update</button>"
-    "</form>"
-    "<script>"
-    "document.getElementById('settingsForm').addEventListener('submit', function(e) {"
-    "  e.preventDefault();"
-    "  var formData = new FormData(this);"
-    "  var params = new URLSearchParams();"
-    "  for (var pair of formData.entries()) {"
-    "    if (pair[1]) params.append(pair[0], pair[1]);"
-    "  }"
-    "  fetch('/settings?' + params.toString(), { method: 'POST' })"
-    "    .then(response => {"
-    "      var msg = document.getElementById('message');"
-    "      if (response.ok) {"
-    "        msg.className = 'message success';"
-    "        msg.textContent = 'Settings updated successfully!';"
-    "        msg.style.display = 'block';"
-    "        this.reset();"
-    "      } else {"
-    "        return response.text().then(text => {"
-    "          msg.className = 'message error';"
-    "          msg.textContent = 'Error: ' + text;"
-    "          msg.style.display = 'block';"
-    "        });"
-    "      }"
-    "    })"
-    "    .catch(error => {"
-    "      var msg = document.getElementById('message');"
-    "      msg.className = 'message error';"
-    "      msg.textContent = 'Network error: ' + error;"
-    "      msg.style.display = 'block';"
-    "    });"
-    "});"
-    "</script>"
-    "</body>"
-    "</html>";
-
 static esp_err_t settings_get_handler(httpd_req_t *req) {
+    settings_t *settings = (settings_t *)req->user_ctx;
+    
     httpd_resp_set_status(req, HTTPD_200);
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Connection", "keep-alive");
-    httpd_resp_send(req, settings_get_html, strlen(settings_get_html));
+    
+    // Send HTML header and styles
+    httpd_resp_sendstr_chunk(req, 
+        "<!DOCTYPE html>"
+        "<html>"
+        "<head>"
+        "<title>Settings</title>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<style>"
+        "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }"
+        "h1 { color: #333; }"
+        "form { background: #f4f4f4; padding: 20px; border-radius: 8px; }"
+        "label { display: block; margin-top: 15px; font-weight: bold; }"
+        "input, select { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }"
+        "input[type='checkbox'] { width: auto; }"
+        "button { background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; width: 100%; font-size: 16px; }"
+        "button:hover { background: #45a049; }"
+        "hr.minor { margin: 10px 0; border: 0; border-top: 1px solid #ccc; }"
+        "hr.major { margin: 30px 0; border: 0; border-top: 1px solid #ccc; }"
+        ".message { padding: 10px; margin: 10px 0; border-radius: 4px; display: none; }"
+        ".success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }"
+        ".error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }"
+        "</style>"
+        "</head>"
+        "<body>"
+        "<h1>Weight Station Settings</h1>"
+        "<div id='message' class='message'></div>"
+        "<form id='settingsForm'>"
+        "<label for='password'>Password:</label>"
+        "<input type='password' id='password' name='password' placeholder='Leave blank to keep current'>"
+        );
+    
+    // Send update_url with current value
+    char buffer[512];
+    snprintf(buffer, sizeof(buffer), 
+        "<hr class='minor'/>"
+        "<label for='update_url'>Update URL:</label>"
+        "<input type='text' id='update_url' name='update_url' value='%s'>",
+        settings->update_url ? settings->update_url : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send weight_tare with current value
+    snprintf(buffer, sizeof(buffer),
+        "<hr class='minor'/>"
+        "<label for='weight_tare'>Weight Tare:</label>"
+        "<input type='number' id='weight_tare' name='weight_tare' value='%" PRId32 "'>",
+        settings->weight_tare);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send weight_scale with current value
+    snprintf(buffer, sizeof(buffer),
+        "<label for='weight_scale'>Weight Scale:</label>"
+        "<input type='number' id='weight_scale' name='weight_scale' value='%" PRId32 "'>",
+        settings->weight_scale);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send weight_gain with current value selected
+    snprintf(buffer, sizeof(buffer),
+        "<label for='weight_gain'>Weight Gain:</label>"
+        "<select id='weight_gain' name='weight_gain'>"
+        "<option value='128'%s>128</option>"
+        "<option value='64'%s>64</option>"
+        "<option value='32'%s>32</option>"
+        "</select>",
+        settings->weight_gain == HX711_GAIN_A_128 ? " selected" : "",
+        settings->weight_gain == HX711_GAIN_A_64 ? " selected" : "",
+        settings->weight_gain == HX711_GAIN_B_32 ? " selected" : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send wifi_ssid with current value
+    snprintf(buffer, sizeof(buffer),
+        "<hr class='minor'/>"
+        "<label for='wifi_ssid'>Wifi SSID:</label>"
+        "<input type='text' id='wifi_ssid' name='wifi_ssid' value='%s'>",
+        settings->wifi_ssid ? settings->wifi_ssid : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send wifi_password and checkbox
+    snprintf(buffer, sizeof(buffer),
+        "<label for='wifi_password'>Wifi Password:</label>"
+        "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>"
+        "<label for='wifi_ap_fallback_disable'>"
+        "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'%s> Disable WiFi AP Fallback"
+        "</label>",
+        settings->wifi_ap_fallback_disable ? " checked" : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send form footer and JavaScript
+    httpd_resp_sendstr_chunk(req,
+        "<button type='submit'>Update Settings</button>"
+        "</form>"
+        "<hr class='major'/>"
+        "<form action='/ota' method='POST'>"
+        "<button type='submit'>Start OTA Update</button>"
+        "</form>"
+        "<script>"
+        "document.getElementById('settingsForm').addEventListener('submit', function(e) {"
+        "  e.preventDefault();"
+        "  var formData = new FormData(this);"
+        "  var params = new URLSearchParams();"
+        "  for (var pair of formData.entries()) {"
+        "    if (pair[1]) params.append(pair[0], pair[1]);"
+        "  }"
+        "  fetch('/settings?' + params.toString(), { method: 'POST' })"
+        "    .then(response => {"
+        "      var msg = document.getElementById('message');"
+        "      if (response.ok) {"
+        "        msg.className = 'message success';"
+        "        msg.textContent = 'Settings updated successfully!';"
+        "        msg.style.display = 'block';"
+        "      } else {"
+        "        return response.text().then(text => {"
+        "          msg.className = 'message error';"
+        "          msg.textContent = 'Error: ' + text;"
+        "          msg.style.display = 'block';"
+        "        });"
+        "      }"
+        "    })"
+        "    .catch(error => {"
+        "      var msg = document.getElementById('message');"
+        "      msg.className = 'message error';"
+        "      msg.textContent = 'Network error: ' + error;"
+        "      msg.style.display = 'block';"
+        "    });"
+        "});"
+        "</script>"
+        "</body>"
+        "</html>");
+    
+    httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
 
@@ -359,6 +405,7 @@ static httpd_uri_t settings_get_uri = {
     .uri       = "/settings",
     .method    = HTTP_GET,
     .handler   = settings_get_handler,
+    .user_ctx  = NULL  // Will be set during initialization
 };
 
 esp_err_t settings_init(settings_t *settings)
@@ -551,6 +598,7 @@ esp_err_t settings_init(settings_t *settings)
 
 esp_err_t settings_register(settings_t *settings, httpd_handle_t http_server) {
     settings_post_uri.user_ctx = settings;
+    settings_get_uri.user_ctx = settings;
     esp_err_t err = httpd_register_uri_handler_with_basic_auth(settings, http_server, &settings_post_uri);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error (%s) registering settings POST handler!", esp_err_to_name(err));
