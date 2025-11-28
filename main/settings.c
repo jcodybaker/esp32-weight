@@ -391,11 +391,11 @@ esp_err_t settings_init(settings_t *settings)
                 ESP_LOGE(TAG, "Error (%s) reading update_url!", esp_err_to_name(err));
                 return err;
             }
-            ESP_LOGI(TAG, "Read 'update_url' = %s", settings->update_url);
+            ESP_LOGI(TAG, "Read 'update_url' = '%s'", settings->update_url);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
             settings->update_url = CONFIG_OTA_FIRMWARE_UPGRADE_URL;
-            ESP_LOGI(TAG, "No value for 'update_url'; using default = %s", settings->update_url);
+            ESP_LOGI(TAG, "No value for 'update_url'; using default = '%s'", settings->update_url);
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading update_url!", esp_err_to_name(err));
@@ -416,12 +416,11 @@ esp_err_t settings_init(settings_t *settings)
                 ESP_LOGE(TAG, "Error (%s) reading password!", esp_err_to_name(err));
                 return err;
             }
-            ESP_LOGI(TAG, "Read 'password' = %s", settings->password);
+            ESP_LOGI(TAG, "Read 'password' = '%s'", settings->password);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
             settings->password = CONFIG_HTTPD_BASIC_AUTH_PASSWORD;
-            ESP_LOGI(TAG, "Setting 'password' on settings %p", settings);
-            ESP_LOGI(TAG, "No value for 'password'; using default = %s", settings->password);
+            ESP_LOGI(TAG, "No value for 'password'; using default = '%s'", settings->password);
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading password!", esp_err_to_name(err));
@@ -489,12 +488,11 @@ esp_err_t settings_init(settings_t *settings)
                 ESP_LOGE(TAG, "Error (%s) reading wifi_ssid!", esp_err_to_name(err));
                 return err;
             }
-            ESP_LOGI(TAG, "Read 'wifi_ssid' = %s", settings->wifi_ssid);
+            ESP_LOGI(TAG, "Read 'wifi_ssid' = '%s'", settings->wifi_ssid);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
             settings->wifi_ssid = CONFIG_ESP_WIFI_SSID;
-            ESP_LOGI(TAG, "Setting 'wifi_ssid' on settings %p", settings);
-            ESP_LOGI(TAG, "No value for 'wifi_ssid'; using default = %s", settings->wifi_ssid);
+            ESP_LOGI(TAG, "No value for 'wifi_ssid'; using default = '%s'", settings->wifi_ssid);
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading wifi_ssid!", esp_err_to_name(err));
@@ -515,12 +513,11 @@ esp_err_t settings_init(settings_t *settings)
                 ESP_LOGE(TAG, "Error (%s) reading password!", esp_err_to_name(err));
                 return err;
             }
-            ESP_LOGI(TAG, "Read 'wifi_password' = %s", settings->wifi_password);
+            ESP_LOGI(TAG, "Read 'wifi_password' = '%s'", settings->wifi_password);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
             settings->wifi_password = CONFIG_ESP_WIFI_PASSWORD;
-            ESP_LOGI(TAG, "Setting 'wifi_password' on settings %p", settings);
-            ESP_LOGI(TAG, "No value for 'wifi_password'; using default = %s", settings->wifi_password);
+            ESP_LOGI(TAG, "No value for 'wifi_password'; using default = '%s'", settings->wifi_password);
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading wifi_password!", esp_err_to_name(err));

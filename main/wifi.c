@@ -72,7 +72,7 @@ static bool ap_configured = false;
 
 
 /* Initialize soft AP */
-void wifi_init_softap(void)
+void wifi_configure_softap(void)
 {
     if (ap_configured) {
         return;
@@ -88,7 +88,7 @@ void wifi_init_softap(void)
 
     snprintf(ap_ssid, sizeof(ap_ssid), "%s_%02hhX%02hhX", CONFIG_ESP_WIFI_AP_SSID_PREFIX, ap_mac[4], ap_mac[5]);
 
-    ESP_LOGI(TAG_AP, "wifi_init_softap configuring. SSID: %s password: '' channel:%d",
+    ESP_LOGI(TAG_AP, "wifi_configure_softap configuring. SSID: %s password: '' channel:%d",
              ap_ssid, CONFIG_ESP_WIFI_AP_CHANNEL);
     wifi_config_t wifi_ap_config = {
         .ap = {{0}}
@@ -103,7 +103,7 @@ void wifi_init_softap(void)
 
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_ap_config));
 
-    ESP_LOGI(TAG_AP, "wifi_init_softap finished. SSID:%s password:'' channel:%d",
+    ESP_LOGI(TAG_AP, "wifi_configure_softap finished. SSID:%s password:'' channel:%d",
              ap_ssid, CONFIG_ESP_WIFI_AP_CHANNEL);
 
     ap_configured = true;
@@ -118,51 +118,55 @@ static void event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
 {
     settings_t *settings = (settings_t *)arg;
-    if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STACONNECTED) {
-        wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *) event_data;
-        ESP_LOGI(TAG_AP, "Station "MACSTR" joined, AID=%d",
-                 MAC2STR(event->mac), event->aid);
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_AP_STADISCONNECTED) {
-        wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *) event_data;
-        ESP_LOGI(TAG_AP, "Station "MACSTR" left, AID=%d, reason:%d",
-                 MAC2STR(event->mac), event->aid, event->reason);
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
-        esp_wifi_connect();
-    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < CONFIG_ESP_MAXIMUM_RETRY) {
+    if (event_base == WIFI_EVENT) {
+        if (event_id == WIFI_EVENT_AP_STACONNECTED) {
+            wifi_event_ap_staconnected_t *event = (wifi_event_ap_staconnected_t *) event_data;
+            ESP_LOGI(TAG_AP, "Station "MACSTR" joined, AID=%d",
+                    MAC2STR(event->mac), event->aid);
+        } else if (event_id == WIFI_EVENT_AP_STADISCONNECTED) {
+            wifi_event_ap_stadisconnected_t *event = (wifi_event_ap_stadisconnected_t *) event_data;
+            ESP_LOGI(TAG_AP, "Station "MACSTR" left, AID=%d, reason:%d",
+                    MAC2STR(event->mac), event->aid, event->reason);
+        } else if (event_id == WIFI_EVENT_STA_START) {
             esp_wifi_connect();
-            s_retry_num++;
-            ESP_LOGI(TAG, "retry to connect to the AP");
-        } else {
-            xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
-            if (!ap_active && !settings->wifi_ap_fallback_disable) {
-                esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
-                if (err != ESP_OK) {
-                    ESP_LOGE(TAG, "Failed to set WiFi mode to APSTA: %s", esp_err_to_name(err));
+        } else if (event_id == WIFI_EVENT_STA_DISCONNECTED) {
+            if (s_retry_num < CONFIG_ESP_MAXIMUM_RETRY) {
+                esp_wifi_connect();
+                s_retry_num++;
+                ESP_LOGI(TAG, "retry to connect to the AP");
+            } else {
+                xEventGroupSetBits(s_wifi_event_group, WIFI_FAIL_BIT);
+                if (!ap_active && !settings->wifi_ap_fallback_disable) {
+                    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_APSTA);
+                    if (err != ESP_OK) {
+                        ESP_LOGE(TAG, "Failed to set WiFi mode to APSTA: %s", esp_err_to_name(err));
+                    }
+                    ESP_ERROR_CHECK(esp_wifi_stop());
+                    wifi_configure_softap();
+                    ESP_ERROR_CHECK(esp_wifi_start());
+                    ap_active = true;
                 }
-                ESP_ERROR_CHECK(esp_wifi_stop());
-                wifi_init_softap();
-                ESP_ERROR_CHECK(esp_wifi_start());
-                ap_active = true;
             }
+            ESP_LOGI(TAG,"connect to the AP fail");
         }
-        ESP_LOGI(TAG,"connect to the AP fail");
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
-        ESP_ERROR_CHECK(esp_wifi_stop());
-        esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
-        if (err != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to set WiFi mode to STA: %s", esp_err_to_name(err));
+        if (ap_active) {
+            ESP_ERROR_CHECK(esp_wifi_stop());
+            esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to set WiFi mode to STA: %s", esp_err_to_name(err));
+            }
+            ESP_ERROR_CHECK(esp_wifi_start());
+            ap_active = false;
         }
-        ESP_ERROR_CHECK(esp_wifi_start());
-        ap_active = false;
     }
 }
 
-void wifi_init_sta(settings_t *settings) {
+void wifi_configure_sta(settings_t *settings) {
     if (sta_configured) {
         return;
     }
@@ -180,10 +184,11 @@ void wifi_init_sta(settings_t *settings) {
             .sae_h2e_identifier = EXAMPLE_H2E_IDENTIFIER,
         },
     };
-    sta_configured = true;
-    memcpy(wifi_config.sta.ssid, settings->wifi_ssid, sizeof(settings->wifi_ssid));
-    memcpy(wifi_config.sta.password, settings->wifi_password, sizeof(settings->wifi_password));
+
+    memcpy(wifi_config.sta.ssid, settings->wifi_ssid, strlen(settings->wifi_ssid));
+    memcpy(wifi_config.sta.password, settings->wifi_password, strlen(settings->wifi_password));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
+    sta_configured = true;
 }
 
 void wifi_init(settings_t *settings)
@@ -214,17 +219,16 @@ void wifi_init(settings_t *settings)
     if (settings->wifi_ssid == NULL || settings->wifi_ssid[0] == '\0') {
         ESP_LOGI(TAG_AP, "No WiFi credentials set, starting in AP mode");
         ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP) );
-        wifi_init_softap();
+        wifi_configure_softap();
         ESP_ERROR_CHECK(esp_wifi_start() );
         ap_active = true;
         return;
     }
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
-    wifi_init_sta(settings);
+    wifi_configure_sta(settings);
     ESP_LOGI(TAG, "Attempting connection to WiFi SSID: %s", settings->wifi_ssid);
     ESP_ERROR_CHECK(esp_wifi_start() );
-    ESP_LOGI(TAG, "wifi_init finished.");
 
     /* Waiting until either the connection is established (WIFI_CONNECTED_BIT) or connection failed for the maximum
      * number of re-tries (WIFI_FAIL_BIT). The bits are set by event_handler() (see above) */
@@ -235,11 +239,11 @@ void wifi_init(settings_t *settings)
             pdMS_TO_TICKS(CONFIG_ESP_WIFI_CONNECT_TIMEOUT_MS));
 
     if (bits & WIFI_CONNECTED_BIT) {
-        ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 CONFIG_ESP_WIFI_SSID, CONFIG_ESP_WIFI_PASSWORD);
+        ESP_LOGI(TAG, "Connected to ap SSID:%s password:%s",
+                 settings->wifi_ssid, settings->wifi_password);
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 CONFIG_ESP_WIFI_SSID, CONFIG_ESP_WIFI_PASSWORD);
+                 settings->wifi_ssid, settings->wifi_password);
     } else {
         ESP_LOGE(TAG, "Timeout waiting for WiFi connection; launching AP mode.");
         ESP_ERROR_CHECK(esp_wifi_stop());
@@ -247,7 +251,7 @@ void wifi_init(settings_t *settings)
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to set WiFi mode to APSTA: %s", esp_err_to_name(err));
         }
-        wifi_init_softap();
+        wifi_configure_softap();
         ESP_ERROR_CHECK(esp_wifi_start() );
         ap_active = true;
     }
