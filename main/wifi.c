@@ -191,6 +191,15 @@ void wifi_configure_sta(settings_t *settings) {
     sta_configured = true;
 }
 
+int8_t wifi_get_rssi(void) {
+    wifi_ap_record_t ap_info;
+    esp_err_t err = esp_wifi_sta_get_ap_info(&ap_info);
+    if (err != ESP_OK) {
+        return 0; // Return 0 if not connected or error
+    }
+    return ap_info.rssi;
+}
+
 void wifi_init(settings_t *settings)
 {
     s_wifi_event_group = xEventGroupCreate();

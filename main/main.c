@@ -13,6 +13,7 @@
 #include "esp_event.h"
 #include "settings.h"
 #include "http_server.h"
+#include "metrics.h"
 #include <esp_log.h>
 
 void app_main(void)
@@ -37,4 +38,5 @@ void app_main(void)
     settings_register(settings, http_server);
     weight_init(settings, http_server);
     ota_init(settings, http_server);
+    metrics_init(http_server);
 }
