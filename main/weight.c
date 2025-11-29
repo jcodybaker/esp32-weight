@@ -154,14 +154,7 @@ int32_t weight_get_latest(bool *available) {
     if (available) {
         *available = g_weight_available;
     }
-    return g_latest_weight_raw;
-}
-
-int32_t weight_get_latest_raw(bool *available) {
-    if (available) {
-        *available = g_weight_available;
-    }
-    return g_latest_weight_raw;
+    return g_latest_weight;
 }
 
 void weight_init(settings_t *settings, httpd_handle_t server)
