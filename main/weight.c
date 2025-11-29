@@ -5,6 +5,8 @@
 #include <freertos/task.h>
 #include <hx711.h>
 #include <string.h>
+#include <esp_ota_ops.h>
+#include <esp_app_format.h>
 #include "IQmathLib.h"
 
 #include "weight.h"
@@ -154,6 +156,20 @@ static const char *weight_display_html = ""
     "updateWeight();"
     "setInterval(updateWeight, 500);"
     "</script>"
+    "<footer style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 12px;'>"
+    "<div id='version'>Loading version...</div>"
+    "</footer>"
+    "<script>"
+    "fetch('/version')"
+    "  .then(response => response.json())"
+    "  .then(data => {"
+    "    document.getElementById('version').innerHTML = "
+    "      'Firmware: ' + data.version + '<br>Hash: ' + data.hash;"
+    "  })"
+    "  .catch(() => {"
+    "    document.getElementById('version').textContent = 'Version info unavailable';"
+    "  });"
+    "</script>"
     "</body>"
     "</html>";
 
@@ -210,6 +226,28 @@ static esp_err_t weight_data_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+static esp_err_t version_handler(httpd_req_t *req) {
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    char json_buf[256];
+    
+    // Format the hash as a hex string (first 8 bytes for brevity)
+    char hash_str[17];
+    for (int i = 0; i < 8; i++) {
+        sprintf(&hash_str[i * 2], "%02x", app_desc->app_elf_sha256[i]);
+    }
+    hash_str[16] = '\0';
+    
+    snprintf(json_buf, sizeof(json_buf), 
+            "{\"version\":\"%s\",\"hash\":\"%s\",\"date\":\"%s\",\"time\":\"%s\"}",
+            app_desc->version, hash_str, app_desc->date, app_desc->time);
+    
+    httpd_resp_set_status(req, HTTPD_200);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_send(req, json_buf, strlen(json_buf));
+    return ESP_OK;
+}
+
 static httpd_uri_t weight_display_uri = {
     .uri       = "/",
     .method    = HTTP_GET,
@@ -221,6 +259,13 @@ static httpd_uri_t weight_data_uri = {
     .uri       = "/weight/data",
     .method    = HTTP_GET,
     .handler   = weight_data_handler,
+    .user_ctx  = NULL
+};
+
+static httpd_uri_t version_uri = {
+    .uri       = "/version",
+    .method    = HTTP_GET,
+    .handler   = version_handler,
     .user_ctx  = NULL
 };
 
@@ -252,6 +297,11 @@ void weight_init(settings_t *settings, httpd_handle_t server)
     err = httpd_register_uri_handler(server, &weight_data_uri);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error (%s) registering weight data handler!", esp_err_to_name(err));
+    }
+    
+    err = httpd_register_uri_handler(server, &version_uri);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) registering version handler!", esp_err_to_name(err));
     }
     
     // Start the weight reading task

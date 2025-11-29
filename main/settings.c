@@ -27,6 +27,8 @@
 #include "http_server.h"
 #include <stdbool.h>
 #include <math.h>
+#include <esp_ota_ops.h>
+#include <esp_app_format.h>
 #include "IQmathLib.h"
 
 static const char *TAG = "settings";
@@ -213,6 +215,14 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, buffer);
     free(encoded_hostname);
     
+    // Get firmware version info
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    char hash_str[17];
+    for (int i = 0; i < 8; i++) {
+        sprintf(&hash_str[i * 2], "%02x", app_desc->app_elf_sha256[i]);
+    }
+    hash_str[16] = '\0';
+    
     // Send form footer and JavaScript
     httpd_resp_sendstr_chunk(req,
         "<button type='submit'>Update Settings</button>"
@@ -221,6 +231,15 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "<form action='/ota' method='POST'>"
         "<button type='submit'>Start OTA Update</button>"
         "</form>"
+        "<footer style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 12px;'>");
+    
+    snprintf(buffer, sizeof(buffer),
+        "Firmware: %s<br>Hash: %s",
+        app_desc->version, hash_str);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    httpd_resp_sendstr_chunk(req,
+        "</footer>"
         "<script>"
         "document.getElementById('settingsForm').addEventListener('submit', function(e) {"
         "  e.preventDefault();"
