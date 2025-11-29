@@ -206,10 +206,30 @@ void wifi_init(settings_t *settings)
 
     ESP_ERROR_CHECK(esp_netif_init());
 
-    esp_netif_create_default_wifi_sta();
+    esp_netif_t *sta_netif = esp_netif_create_default_wifi_sta();
+    
+    // Set hostname if available
+    if (settings->hostname != NULL && settings->hostname[0] != '\0') {
+        esp_err_t err = esp_netif_set_hostname(sta_netif, settings->hostname);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Set hostname to: %s", settings->hostname);
+        } else {
+            ESP_LOGE(TAG, "Failed to set hostname: %s", esp_err_to_name(err));
+        }
+    }
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+
+    // Set hostname if available
+    if (settings->hostname != NULL && settings->hostname[0] != '\0') {
+        esp_err_t err = esp_netif_set_hostname(sta_netif, settings->hostname);
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Set hostname to: %s", settings->hostname);
+        } else {
+            ESP_LOGE(TAG, "Failed to set hostname: %s", esp_err_to_name(err));
+        }
+    }
 
     esp_event_handler_instance_t instance_any_id;
     esp_event_handler_instance_t instance_got_ip;

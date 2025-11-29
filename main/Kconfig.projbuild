@@ -42,6 +42,12 @@ menu "Weight Sensor Configuration"
         help
             Gain factor for the HX711. Common values are 128, 64, and 32.
 
+    config ESP_WIFI_HOSTNAME
+        string "WiFi Hostname"
+        default "weight-sensor"
+        help
+            Hostname for the device on the network.
+
     config ESP_WIFI_AP_SSID_PREFIX
         string "WiFi AP SSID Prefix"
         default "Sensor"

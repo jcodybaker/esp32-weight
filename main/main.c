@@ -38,5 +38,5 @@ void app_main(void)
     settings_register(settings, http_server);
     weight_init(settings, http_server);
     ota_init(settings, http_server);
-    metrics_init(http_server);
+    metrics_init(settings, http_server);
 }

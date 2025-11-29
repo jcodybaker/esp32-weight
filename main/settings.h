@@ -15,6 +15,7 @@ typedef struct {
     char * wifi_ssid;
     char * wifi_password;
     bool wifi_ap_fallback_disable;
+    char * hostname;
 } settings_t;
 
 esp_err_t settings_init(settings_t *settings);

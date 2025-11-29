@@ -103,6 +103,7 @@ static const char *weight_display_html = ""
     "    .then(response => response.json())"
     "    .then(data => {"
     "      if (data.available) {"
+    "        currentRaw = data.raw;"
     "        document.getElementById('weight').textContent = data.weight.toLocaleString();"
     "        const lbs = (data.weight / 453.59237).toFixed(2);"
     "        document.getElementById('weight-lbs').textContent = lbs;"
@@ -157,10 +158,37 @@ static const char *weight_display_html = ""
     "</html>";
 
 static esp_err_t weight_display_handler(httpd_req_t *req) {
+    settings_t *settings = (settings_t *)req->user_ctx;
+    const char *hostname = (settings->hostname != NULL && settings->hostname[0] != '\0') 
+                            ? settings->hostname : "unknown";
+    
+    // Create a buffer for the complete HTML with hostname
+    char *html_with_hostname = malloc(strlen(weight_display_html) + strlen(hostname) + 32);
+    if (html_with_hostname == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    // Replace "Weight Station</h1>" with "Weight Station: hostname</h1>"
+    const char *marker = "Weight Station</h1>";
+    const char *pos = strstr(weight_display_html, marker);
+    if (pos != NULL) {
+        size_t before_len = pos - weight_display_html;
+        strcpy(html_with_hostname, weight_display_html);
+        html_with_hostname[before_len] = '\0';
+        strcat(html_with_hostname, "Weight Station: ");
+        strcat(html_with_hostname, hostname);
+        strcat(html_with_hostname, "</h1>");
+        strcat(html_with_hostname, pos + strlen(marker));
+    } else {
+        strcpy(html_with_hostname, weight_display_html);
+    }
+    
     httpd_resp_set_status(req, HTTPD_200);
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Connection", "keep-alive");
-    httpd_resp_send(req, weight_display_html, strlen(weight_display_html));
+    httpd_resp_send(req, html_with_hostname, strlen(html_with_hostname));
+    free(html_with_hostname);
     return ESP_OK;
 }
 
@@ -212,6 +240,9 @@ uint32_t weight_get_latest_raw(bool *available) {
 
 void weight_init(settings_t *settings, httpd_handle_t server)
 {
+    // Set user_ctx to settings so handlers can access hostname
+    weight_display_uri.user_ctx = settings;
+    
     // Register HTTP handlers
     esp_err_t err = httpd_register_uri_handler(server, &weight_display_uri);
     if (err != ESP_OK) {

@@ -10,6 +10,7 @@
 static const char *TAG = "metrics";
 
 static esp_err_t metrics_handler(httpd_req_t *req) {
+    settings_t *settings = (settings_t *)req->user_ctx;
     char response[1024];
     int offset = 0;
     
@@ -25,6 +26,10 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     // Get WiFi RSSI
     int8_t rssi = wifi_get_rssi();
     
+    // Get hostname for labels
+    const char *hostname = (settings->hostname != NULL && settings->hostname[0] != '\0') 
+                            ? settings->hostname : "weight-station";
+    
     // Build Prometheus text format response
     // Weight metric
     offset += snprintf(response + offset, sizeof(response) - offset,
@@ -33,7 +38,7 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     
     if (weight_available) {
         offset += snprintf(response + offset, sizeof(response) - offset,
-                          "weight_grams %.2f\n", weight);
+                          "weight_grams{hostname=\"%s\"} %.2f\n", hostname, weight);
     }
 
     // Build Prometheus text format response
@@ -44,7 +49,7 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     
     if (weight_available) {
         offset += snprintf(response + offset, sizeof(response) - offset,
-                          "weight_raw %" PRIi32 "\n", weight_raw);
+                          "weight_raw{hostname=\"%s\"} %" PRIi32 "\n", hostname, weight_raw);
     }
     
     // WiFi RSSI metric
@@ -54,14 +59,14 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     
     if (rssi != 0) {
         offset += snprintf(response + offset, sizeof(response) - offset,
-                          "wifi_rssi_dbm %d\n", rssi);
+                          "wifi_rssi_dbm{hostname=\"%s\"} %d\n", hostname, rssi);
     }
     
     // Uptime metric
     offset += snprintf(response + offset, sizeof(response) - offset,
                       "# HELP uptime_seconds System uptime in seconds\n"
                       "# TYPE uptime_seconds counter\n"
-                      "uptime_seconds %lld\n", uptime_seconds);
+                      "uptime_seconds{hostname=\"%s\"} %lld\n", hostname, uptime_seconds);
     
     // Set response headers and send
     httpd_resp_set_status(req, HTTPD_200);
@@ -79,7 +84,8 @@ static httpd_uri_t metrics_uri = {
     .user_ctx  = NULL
 };
 
-void metrics_init(httpd_handle_t server) {
+void metrics_init(settings_t *settings, httpd_handle_t server) {
+    metrics_uri.user_ctx = settings;
     esp_err_t err = httpd_register_uri_handler(server, &metrics_uri);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error (%s) registering metrics handler!", esp_err_to_name(err));

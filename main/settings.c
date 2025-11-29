@@ -138,6 +138,7 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "</head>"
         "<body>"
         "<h1>Weight Station Settings</h1>"
+        "<a href='/'>Home</a><br>"
         "<div id='message' class='message'></div>"
         "<form id='settingsForm'>"
         "<label for='password'>Password:</label>"
@@ -202,6 +203,15 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "</label>",
         settings->wifi_ap_fallback_disable ? " checked" : "");
     httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send hostname with current value
+    char *encoded_hostname = url_encode(settings->hostname);
+    snprintf(buffer, sizeof(buffer),
+        "<label for='hostname'>Hostname:</label>"
+        "<input type='text' id='hostname' name='hostname' value='%s'>",
+        encoded_hostname ? encoded_hostname : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_hostname);
     
     // Send form footer and JavaScript
     httpd_resp_sendstr_chunk(req,
@@ -338,7 +348,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     if (httpd_query_key_value(query_buf, "weight_tare", param_buf, sizeof(param_buf)) == ESP_OK) {
         int32_t weight_tare = atoi(param_buf);
         if (weight_tare == settings->weight_tare) {
-            ESP_LOGI(TAG, "Weight tare unchanged");
+            ESP_LOGI(TAG, "Weight tare unchanged; v='%s', parsed: %d, old: %d", param_buf, weight_tare, settings->weight_tare);
             param_buf[0] = '\0'; // Clear to avoid updating
         }
         if (strlen(param_buf) > 0) {
@@ -453,6 +463,29 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     } else {
         ESP_LOGI(TAG, "WiFi AP fallback disable unchanged");
     }
+
+    // Check and update hostname
+    if (httpd_query_key_value(query_buf, "hostname", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(decoded_param, param_buf);  // Decode URL encoding
+        if (strcmp(decoded_param, settings->hostname) == 0) {
+            ESP_LOGI(TAG, "Hostname unchanged");
+            decoded_param[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(decoded_param) > 0) {
+            err = nvs_set_str(settings_handle, "hostname", decoded_param);
+            if (err == ESP_OK) {
+                if (settings->hostname != NULL) {
+                    free(settings->hostname);
+                }
+                settings->hostname = strdup(decoded_param);
+                updated = true;
+                ESP_LOGI(TAG, "Updated hostname to %s", decoded_param);
+                restart_needed = true;
+            } else {
+                ESP_LOGE(TAG, "Failed to write hostname to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
     
     
     // Commit changes to NVS
@@ -500,6 +533,7 @@ esp_err_t settings_init(settings_t *settings)
     settings->password = NULL;
     settings->wifi_ssid = NULL;
     settings->wifi_password = NULL;
+    settings->hostname = NULL;
     // Open NVS handle
     ESP_LOGI(TAG, "\nOpening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -677,6 +711,31 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading wifi_ap_fallback_disable!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'hostname' from NVS...");
+    err = nvs_get_str(settings_handle, "hostname", NULL, &str_size);
+    switch (err) {
+        case ESP_OK:
+            settings->hostname = malloc(str_size);
+            if (settings->hostname == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for hostname");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "hostname", settings->hostname, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading hostname!", esp_err_to_name(err));
+                return err;
+            }
+            ESP_LOGI(TAG, "Read 'hostname' = '%s'", settings->hostname);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->hostname = strdup(CONFIG_ESP_WIFI_HOSTNAME);
+            ESP_LOGI(TAG, "No value for 'hostname'; using default = '%s'", settings->hostname);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading hostname!", esp_err_to_name(err));
             return err;
     }
 
