@@ -166,8 +166,8 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     // Send weight_scale with current value
     snprintf(buffer, sizeof(buffer),
         "<label for='weight_scale'>Weight Scale:</label>"
-        "<input type='number' step='0.00390625' id='weight_scale' name='weight_scale' value='%.8f'>",
-        _IQ8toF(settings->weight_scale));
+        "<input type='text' id='weight_scale' name='weight_scale' value='%.8f'>",
+        _IQ16toF(settings->weight_scale));
     httpd_resp_sendstr_chunk(req, buffer);
     
     // Send weight_gain with current value selected
@@ -356,7 +356,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     // Check and update weight_scale
     if (httpd_query_key_value(query_buf, "weight_scale", param_buf, sizeof(param_buf)) == ESP_OK) {
         float weight_scale_f = atof(param_buf);
-        _iq8 weight_scale = _IQ8(weight_scale_f);
+        _iq8 weight_scale = _IQ16(weight_scale_f);
         if (weight_scale == settings->weight_scale) {
             ESP_LOGI(TAG, "Weight scale unchanged");
             param_buf[0] = '\0'; // Clear to avoid updating
@@ -366,7 +366,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             if (err == ESP_OK) {
                 settings->weight_scale = weight_scale;
                 updated = true;
-                ESP_LOGI(TAG, "Updated weight_scale to %.8f (0x%08" PRIX32 ")", _IQ8toF(weight_scale), weight_scale);
+                ESP_LOGI(TAG, "Updated weight_scale to %.8f (0x%08" PRIX32 ")", _IQ16toF(weight_scale), weight_scale);
             } else {
                 ESP_LOGE(TAG, "Failed to write weight_scale to NVS: %s", esp_err_to_name(err));
             }
@@ -581,11 +581,11 @@ esp_err_t settings_init(settings_t *settings)
     switch (err) {
         case ESP_OK:
             settings->weight_scale = (_iq8)weight_scale_raw;
-            ESP_LOGI(TAG, "Read 'weight_scale' = %.8f (0x%08" PRIX32 ")", _IQ8toF(settings->weight_scale), weight_scale_raw);
+            ESP_LOGI(TAG, "Read 'weight_scale' = %.8f (0x%08" PRIX32 ")", _IQ16toF(settings->weight_scale), weight_scale_raw);
             break;
         case ESP_ERR_NVS_NOT_FOUND:
             settings->weight_scale = (_iq8)CONFIG_WEIGHT_SCALE;
-            ESP_LOGI(TAG, "No value for 'weight_scale'; using default = %.8f (0x%08" PRIX32 ")", _IQ8toF(settings->weight_scale), (int32_t)settings->weight_scale);
+            ESP_LOGI(TAG, "No value for 'weight_scale'; using default = %.8f (0x%08" PRIX32 ")", _IQ16toF(settings->weight_scale), (int32_t)settings->weight_scale);
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading weight_scale!", esp_err_to_name(err));

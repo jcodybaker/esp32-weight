@@ -19,7 +19,7 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     
     // Get weight
     bool weight_available = false;
-    _iq8 weight = weight_get_latest(&weight_available);
+    float weight = weight_get_latest(&weight_available);
     int32_t weight_raw = weight_get_latest_raw(&weight_available);
     
     // Get WiFi RSSI
@@ -33,7 +33,7 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     
     if (weight_available) {
         offset += snprintf(response + offset, sizeof(response) - offset,
-                          "weight_grams %.2f\n", _IQ8toF(weight));
+                          "weight_grams %.2f\n", weight);
     }
 
     // Build Prometheus text format response
