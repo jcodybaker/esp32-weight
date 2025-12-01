@@ -54,12 +54,12 @@ dependencies:
       type: idf
     version: 5.5.1
   jcodybaker/bthome:
-    component_hash: aa07be92f5004aee2994195e09b7af4e6412d072c03aa963f6de073d14434ad3
+    component_hash: baca1bc1043e08c8d10975bd677c4d9391e90b0727c4ab357e1f1e3b2e94d4f2
     dependencies: []
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 0.0.2
+    version: 0.0.4
 direct_dependencies:
 - esp-idf-lib/hx711
 - espressif/iqmath

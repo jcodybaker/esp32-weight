@@ -16,6 +16,8 @@ typedef struct {
     char * wifi_password;
     bool wifi_ap_fallback_disable;
     char * hostname;
+    uint8_t *selected_bthome_object_ids;
+    size_t selected_bthome_object_ids_count;
 } settings_t;
 
 esp_err_t settings_init(settings_t *settings);

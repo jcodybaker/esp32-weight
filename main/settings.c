@@ -30,6 +30,7 @@
 #include <esp_ota_ops.h>
 #include <esp_app_format.h>
 #include "IQmathLib.h"
+#include "bthome.h"
 
 static const char *TAG = "settings";
 
@@ -117,70 +118,70 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     
     // Send HTML header and styles
     httpd_resp_sendstr_chunk(req, 
-        "<!DOCTYPE html>"
-        "<html>"
-        "<head>"
-        "<title>Settings</title>"
-        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
-        "<style>"
-        "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }"
-        "h1 { color: #333; }"
-        "form { background: #f4f4f4; padding: 20px; border-radius: 8px; }"
-        "label { display: block; margin-top: 15px; font-weight: bold; }"
-        "input, select { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }"
-        "input[type='checkbox'] { width: auto; }"
-        "button { background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; width: 100%; font-size: 16px; }"
-        "button:hover { background: #45a049; }"
-        "hr.minor { margin: 10px 0; border: 0; border-top: 1px solid #ccc; }"
-        "hr.major { margin: 30px 0; border: 0; border-top: 1px solid #ccc; }"
-        ".message { padding: 10px; margin: 10px 0; border-radius: 4px; display: none; }"
-        ".success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }"
-        ".error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }"
-        "</style>"
-        "</head>"
-        "<body>"
-        "<h1>Weight Station Settings</h1>"
-        "<a href='/'>Home</a><br>"
-        "<div id='message' class='message'></div>"
-        "<form id='settingsForm'>"
-        "<label for='password'>Password:</label>"
-        "<input type='password' id='password' name='password' placeholder='Leave blank to keep current'>"
+        "<!DOCTYPE html>\n"
+        "<html>\n"
+        "<head>\n"
+        "<title>Settings</title>\n"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
+        "<style>\n"
+        "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }\n"
+        "h1 { color: #333; }\n"
+        "form { background: #f4f4f4; padding: 20px; border-radius: 8px; }\n"
+        "label { display: block; margin-top: 15px; font-weight: bold; }\n"
+        "input, select { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }\n"
+        "input[type='checkbox'] { width: auto; }\n"
+        "button { background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; width: 100%; font-size: 16px; }\n"
+        "button:hover { background: #45a049; }\n"
+        "hr.minor { margin: 10px 0; border: 0; border-top: 1px solid #ccc; }\n"
+        "hr.major { margin: 30px 0; border: 0; border-top: 1px solid #ccc; }\n"
+        ".message { padding: 10px; margin: 10px 0; border-radius: 4px; display: none; }\n"
+        ".success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }\n"
+        ".error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }\n"
+        "</style>\n"
+        "</head>\n"
+        "<body>\n"
+        "<h1>Weight Station Settings</h1>\n"
+        "<a href='/'>Home</a><br>\n"
+        "<div id='message' class='message'></div>\n"
+        "<form id='settingsForm'>\n"
+        "<label for='password'>Password:</label>\n"
+        "<input type='password' id='password' name='password' placeholder='Leave blank to keep current'>\n"
         );
     
     // Send update_url with current value
     char buffer[512];
     char *encoded_update_url = url_encode(settings->update_url);
     snprintf(buffer, sizeof(buffer), 
-        "<hr class='minor'/>"
-        "<label for='update_url'>Update URL:</label>"
-        "<input type='text' id='update_url' name='update_url' value='%s'>",
+        "<hr class='minor'/>\n"
+        "<label for='update_url'>Update URL:</label>\n"
+        "<input type='text' id='update_url' name='update_url' value='%s'>\n",
         encoded_update_url ? encoded_update_url : "");
     httpd_resp_sendstr_chunk(req, buffer);
     free(encoded_update_url);
     
     // Send weight_tare with current value
     snprintf(buffer, sizeof(buffer),
-        "<hr class='minor'/>"
-        "<label for='weight_tare'>Weight Tare:</label>"
-        "<input type='number' id='weight_tare' name='weight_tare' value='%" PRId32 "'>",
+        "<hr class='minor'/>\n"
+        "<label for='weight_tare'>Weight Tare:</label>\n"
+        "<input type='number' id='weight_tare' name='weight_tare' value='%" PRId32 "'>\n",
         settings->weight_tare);
     httpd_resp_sendstr_chunk(req, buffer);
     
     // Send weight_scale with current value
     snprintf(buffer, sizeof(buffer),
-        "<label for='weight_scale'>Weight Scale:</label>"
-        "<input type='text' id='weight_scale' name='weight_scale' value='%.8f'>",
+        "<label for='weight_scale'>Weight Scale:</label>\n"
+        "<input type='text' id='weight_scale' name='weight_scale' value='%.8f'>\n",
         _IQ16toF(settings->weight_scale));
     httpd_resp_sendstr_chunk(req, buffer);
     
     // Send weight_gain with current value selected
     snprintf(buffer, sizeof(buffer),
-        "<label for='weight_gain'>Weight Gain:</label>"
-        "<select id='weight_gain' name='weight_gain'>"
-        "<option value='128'%s>128</option>"
-        "<option value='64'%s>64</option>"
-        "<option value='32'%s>32</option>"
-        "</select>",
+        "<label for='weight_gain'>Weight Gain:</label>\n"
+        "<select id='weight_gain' name='weight_gain'>\n"
+        "<option value='128'%s>128</option>\n"
+        "<option value='64'%s>64</option>\n"
+        "<option value='32'%s>32</option>\n"
+        "</select>\n",
         settings->weight_gain == HX711_GAIN_A_128 ? " selected" : "",
         settings->weight_gain == HX711_GAIN_A_64 ? " selected" : "",
         settings->weight_gain == HX711_GAIN_B_32 ? " selected" : "");
@@ -189,31 +190,74 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     // Send wifi_ssid with current value
     char *encoded_wifi_ssid = url_encode(settings->wifi_ssid);
     snprintf(buffer, sizeof(buffer),
-        "<hr class='minor'/>"
-        "<label for='wifi_ssid'>Wifi SSID:</label>"
-        "<input type='text' id='wifi_ssid' name='wifi_ssid' value='%s'>",
+        "<hr class='minor'/>\n"
+        "<label for='wifi_ssid'>Wifi SSID:</label>\n"
+        "<input type='text' id='wifi_ssid' name='wifi_ssid' value='%s'>\n",
         encoded_wifi_ssid ? encoded_wifi_ssid : "");
     httpd_resp_sendstr_chunk(req, buffer);
     free(encoded_wifi_ssid);
     
     // Send wifi_password and checkbox
     snprintf(buffer, sizeof(buffer),
-        "<label for='wifi_password'>Wifi Password:</label>"
-        "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>"
-        "<label for='wifi_ap_fallback_disable'>"
-        "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'%s> Disable WiFi AP Fallback"
-        "</label>",
+        "<label for='wifi_password'>Wifi Password:</label>\n"
+        "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>\n"
+        "<label for='wifi_ap_fallback_disable'>\n"
+        "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'%s> Disable WiFi AP Fallback\n"
+        "</label>\n",
         settings->wifi_ap_fallback_disable ? " checked" : "");
     httpd_resp_sendstr_chunk(req, buffer);
     
     // Send hostname with current value
     char *encoded_hostname = url_encode(settings->hostname);
     snprintf(buffer, sizeof(buffer),
-        "<label for='hostname'>Hostname:</label>"
-        "<input type='text' id='hostname' name='hostname' value='%s'>",
+        "<label for='hostname'>Hostname:</label>\n"
+        "<input type='text' id='hostname' name='hostname' value='%s'>\n",
         encoded_hostname ? encoded_hostname : "");
     httpd_resp_sendstr_chunk(req, buffer);
     free(encoded_hostname);
+    
+    // Send BTHome object IDs multi-select
+    httpd_resp_sendstr_chunk(req,
+        "<hr class='minor'/>\n"
+        "<label for='bthome_objects'>BTHome Objects to Monitor:</label>\n"
+        "<select id='bthome_objects' name='bthome_objects' multiple size='10' style='height: 200px;'>\n");
+    
+    // Generate options for all BTHome object IDs
+    // We'll include sensor and binary sensor IDs from the bthome.h header
+
+    for (uint8_t i = 0; i < 0xFF; i++) {
+        const char *name = bthome_get_object_name(i);
+        if (name == NULL) {
+            continue; // Skip unknown IDs
+        }
+        const char *unit = bthome_get_object_unit(i);
+        
+        if (name != NULL) {
+            // Check if this ID is selected
+            bool is_selected = false;
+            for (size_t j = 0; j < settings->selected_bthome_object_ids_count; j++) {
+                if (settings->selected_bthome_object_ids[j] == i) {
+                    is_selected = true;
+                    break;
+                }
+            }
+            
+            // Build the label (name + unit)
+            char label[128];
+            if (unit != NULL && strlen(unit) > 0) {
+                snprintf(label, sizeof(label), "%s (%s)", name, unit);
+            } else {
+                snprintf(label, sizeof(label), "%s", name);
+            }
+            
+            snprintf(buffer, sizeof(buffer),
+                "<option value='%hhd'%s>0x%02hhX - %s</option>\n",
+                i, is_selected ? " selected" : "", i, label);
+            httpd_resp_sendstr_chunk(req, buffer);
+        }
+    }
+    
+    httpd_resp_sendstr_chunk(req, "</select>\n");
     
     // Get firmware version info
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -225,54 +269,65 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     
     // Send form footer and JavaScript
     httpd_resp_sendstr_chunk(req,
-        "<button type='submit'>Update Settings</button>"
-        "</form>"
-        "<hr class='major'/>"
-        "<form action='/ota' method='POST'>"
-        "<button type='submit'>Start OTA Update</button>"
-        "</form>"
-        "<footer style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 12px;'>");
+        "<button type='submit'>Update Settings</button>\n"
+        "</form>\n"
+        "<hr class='major'/>\n"
+        "<form action='/ota' method='POST'>\n"
+        "<button type='submit'>Start OTA Update</button>\n"
+        "</form>\n"
+        "<footer style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 12px;'>\n");
     
     snprintf(buffer, sizeof(buffer),
-        "Firmware: %s<br>Hash: %s",
+        "Firmware: %s<br>Hash: %s\n",
         app_desc->version, hash_str);
     httpd_resp_sendstr_chunk(req, buffer);
     
     httpd_resp_sendstr_chunk(req,
-        "</footer>"
-        "<script>"
-        "document.getElementById('settingsForm').addEventListener('submit', function(e) {"
-        "  e.preventDefault();"
-        "  var formData = new FormData(this);"
-        "  var params = new URLSearchParams();"
-        "  for (var pair of formData.entries()) {"
-        "    if (pair[1]) params.append(pair[0], pair[1]);"
-        "  }"
-        "  fetch('/settings?' + params.toString(), { method: 'POST' })"
-        "    .then(response => {"
-        "      var msg = document.getElementById('message');"
-        "      if (response.ok) {"
-        "        msg.className = 'message success';"
-        "        msg.textContent = 'Settings updated successfully!';"
-        "        msg.style.display = 'block';"
-        "      } else {"
-        "        return response.text().then(text => {"
-        "          msg.className = 'message error';"
-        "          msg.textContent = 'Error: ' + text;"
-        "          msg.style.display = 'block';"
-        "        });"
-        "      }"
-        "    })"
-        "    .catch(error => {"
-        "      var msg = document.getElementById('message');"
-        "      msg.className = 'message error';"
-        "      msg.textContent = 'Network error: ' + error;"
-        "      msg.style.display = 'block';"
-        "    });"
-        "});"
-        "</script>"
-        "</body>"
-        "</html>");
+        "</footer>\n"
+        "<script>\n"
+        "document.getElementById('settingsForm').addEventListener('submit', function(e) {\n"
+        "  e.preventDefault();\n"
+        "  var formData = new FormData(this);\n"
+        "  var params = new URLSearchParams();\n"
+        "  for (var pair of formData.entries()) {\n"
+        "    if (pair[1]) {\n"
+        "      // Handle multi-select specially\n"
+        "      if (pair[0] === 'bthome_objects') {\n"
+        "        var select = document.getElementById('bthome_objects');\n"
+        "        var selectedOptions = Array.from(select.selectedOptions);\n"
+        "        for (var i = 0; i < selectedOptions.length; i++) {\n"
+        "          params.append('bthome_objects[' + i + ']', selectedOptions[i].value);\n"
+        "        }\n"
+        "      } else {\n"
+        "        params.append(pair[0], pair[1]);\n"
+        "      }\n"
+        "    }\n"
+        "  }\n"
+        "  fetch('/settings?' + params.toString(), { method: 'POST' })\n"
+        "    .then(response => {\n"
+        "      var msg = document.getElementById('message');\n"
+        "      if (response.ok) {\n"
+        "        msg.className = 'message success';\n"
+        "        msg.textContent = 'Settings updated successfully!';\n"
+        "        msg.style.display = 'block';\n"
+        "      } else {\n"
+        "        return response.text().then(text => {\n"
+        "          msg.className = 'message error';\n"
+        "          msg.textContent = 'Error: ' + text;\n"
+        "          msg.style.display = 'block';\n"
+        "        });\n"
+        "      }\n"
+        "    })\n"
+        "    .catch(error => {\n"
+        "      var msg = document.getElementById('message');\n"
+        "      msg.className = 'message error';\n"
+        "      msg.textContent = 'Network error: ' + error;\n"
+        "      msg.style.display = 'block';\n"
+        "    });\n"
+        "});\n"
+        "</script>\n"
+        "</body>\n"
+        "</html>\n");
     
     httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
@@ -506,6 +561,90 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         }
     }
     
+    // Check and update BTHome object IDs
+    // The multi-select will send multiple parameters with the same name
+    // We need to parse them all and create a blob
+    uint8_t selected_ids[256];  // Maximum 256 object IDs
+    size_t selected_count = 0;
+    
+    // Parse all bthome_objects[] parameters
+    char *query_ptr = query_buf;
+    ESP_LOGI(TAG, "Parsing BTHome object IDs from query string %s", query_buf);
+    while (selected_count < 256) {
+        char key_buf[32];
+        snprintf(key_buf, sizeof(key_buf), "bthome_objects%%5B%zu%%5D", selected_count);
+        ESP_LOGI(TAG, "Looking for key: %s", key_buf);
+        if (httpd_query_key_value(query_ptr, key_buf, param_buf, sizeof(param_buf)) == ESP_OK) {
+            int id_value = atoi(param_buf);
+            if (id_value >= 0 && id_value <= 255) {
+                selected_ids[selected_count] = (uint8_t)id_value;
+                ESP_LOGI(TAG, "Found BTHome object ID: 0x%02X", selected_ids[selected_count]);
+                selected_count++;
+            }
+            // Move to next occurrence
+            query_ptr = strstr(query_ptr, key_buf);
+            if (query_ptr) {
+                query_ptr += strlen(key_buf);
+            } else {
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    
+    // Check if the list has changed
+    bool bthome_ids_changed = false;
+    if (selected_count != settings->selected_bthome_object_ids_count) {
+        bthome_ids_changed = true;
+    } else {
+        for (size_t i = 0; i < selected_count; i++) {
+            if (selected_ids[i] != settings->selected_bthome_object_ids[i]) {
+                bthome_ids_changed = true;
+                break;
+            }
+        }
+    }
+    
+    if (bthome_ids_changed) {
+        if (selected_count > 0) {
+            err = nvs_set_blob(settings_handle, "bthome_obj_ids", selected_ids, selected_count);
+        } else {
+            // If no IDs selected, erase the key
+            err = nvs_erase_key(settings_handle, "bthome_obj_ids");
+            if (err == ESP_ERR_NVS_NOT_FOUND) {
+                err = ESP_OK;  // Already doesn't exist, that's fine
+            }
+        }
+        
+        if (err == ESP_OK) {
+            if (settings->selected_bthome_object_ids != NULL) {
+                free(settings->selected_bthome_object_ids);
+            }
+            
+            if (selected_count > 0) {
+                settings->selected_bthome_object_ids = malloc(selected_count);
+                if (settings->selected_bthome_object_ids != NULL) {
+                    memcpy(settings->selected_bthome_object_ids, selected_ids, selected_count);
+                    settings->selected_bthome_object_ids_count = selected_count;
+                } else {
+                    ESP_LOGE(TAG, "Failed to allocate memory for selected BTHome object IDs");
+                    settings->selected_bthome_object_ids_count = 0;
+                }
+            } else {
+                settings->selected_bthome_object_ids = NULL;
+                settings->selected_bthome_object_ids_count = 0;
+            }
+            
+            updated = true;
+            ESP_LOGI(TAG, "Updated BTHome object IDs - count: %zu", selected_count);
+        } else {
+            ESP_LOGE(TAG, "Failed to write bthome_obj_ids to NVS: %s", esp_err_to_name(err));
+        }
+    } else {
+        ESP_LOGI(TAG, "BTHome object IDs unchanged");
+    }
+    
     
     // Commit changes to NVS
     if (updated) {
@@ -553,6 +692,8 @@ esp_err_t settings_init(settings_t *settings)
     settings->wifi_ssid = NULL;
     settings->wifi_password = NULL;
     settings->hostname = NULL;
+    settings->selected_bthome_object_ids = NULL;
+    settings->selected_bthome_object_ids_count = 0;
     // Open NVS handle
     ESP_LOGI(TAG, "\nOpening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -755,6 +896,39 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading hostname!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'bthome_obj_ids' from NVS...");
+    size_t blob_size = 0;
+    err = nvs_get_blob(settings_handle, "bthome_obj_ids", NULL, &blob_size);
+    switch (err) {
+        case ESP_OK:
+            settings->selected_bthome_object_ids = malloc(blob_size);
+            if (settings->selected_bthome_object_ids == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for selected_bthome_object_ids");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_blob(settings_handle, "bthome_obj_ids", settings->selected_bthome_object_ids, &blob_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading bthome_obj_ids!", esp_err_to_name(err));
+                free(settings->selected_bthome_object_ids);
+                settings->selected_bthome_object_ids = NULL;
+                return err;
+            }
+            settings->selected_bthome_object_ids_count = blob_size;
+            ESP_LOGI(TAG, "Read 'bthome_obj_ids' - %zu IDs", settings->selected_bthome_object_ids_count);
+            for (size_t i = 0; i < settings->selected_bthome_object_ids_count; i++) {
+                ESP_LOGI(TAG, "  ID[%zu] = 0x%02X", i, settings->selected_bthome_object_ids[i]);
+            }
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->selected_bthome_object_ids = NULL;
+            settings->selected_bthome_object_ids_count = 0;
+            ESP_LOGI(TAG, "No value for 'bthome_obj_ids'; using empty list");
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading bthome_obj_ids!", esp_err_to_name(err));
             return err;
     }
 
