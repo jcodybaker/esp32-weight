@@ -53,10 +53,18 @@ dependencies:
     source:
       type: idf
     version: 5.5.1
+  jcodybaker/bthome:
+    component_hash: aa07be92f5004aee2994195e09b7af4e6412d072c03aa963f6de073d14434ad3
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.0.2
 direct_dependencies:
 - esp-idf-lib/hx711
 - espressif/iqmath
 - idf
-manifest_hash: b88a6f3d9a8306797d4e25c5081ea7dc053fe4cc92c140c36e261ee1dc0cfcf8
+- jcodybaker/bthome
+manifest_hash: e060ba912e1126cd45a6b0fe68f15fb148b65b2bb5273d3b611261abc4054ae0
 target: esp32
 version: 2.0.0

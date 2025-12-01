@@ -15,6 +15,7 @@
 #include "http_server.h"
 #include "metrics.h"
 #include <esp_log.h>
+#include "bthome_observer.h"
 
 void app_main(void)
 {
@@ -39,4 +40,5 @@ void app_main(void)
     weight_init(settings, http_server);
     ota_init(settings, http_server);
     metrics_init(settings, http_server);
+    bthome_observer_init();
 }
