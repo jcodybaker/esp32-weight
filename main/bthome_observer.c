@@ -8,6 +8,7 @@
 #include "bthome_ble.h"
 #include "settings.h"
 #include "http_server.h"
+#include "bthome_observer.h"
 
 static const char *TAG = "bthome_observer";
 
@@ -413,4 +414,30 @@ void bthome_observer_init(settings_t *settings, httpd_handle_t server) {
     };
     httpd_register_uri_handler_with_basic_auth(settings, server, &packets_uri);
     ESP_LOGI(TAG, "Registered HTTP handler at /bthome/packets");
+}
+
+// Iterate through all cached BTHome packets
+void bthome_cache_iterate(bthome_cache_iterator_t callback, void *user_data) {
+    if (cache_mutex == NULL || callback == NULL) {
+        return;
+    }
+    
+    xSemaphoreTake(cache_mutex, portMAX_DELAY);
+    
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        if (packet_cache[i].occupied) {
+            bool continue_iteration = callback(
+                packet_cache[i].addr,
+                packet_cache[i].rssi,
+                &packet_cache[i].packet,
+                user_data
+            );
+            
+            if (!continue_iteration) {
+                break;
+            }
+        }
+    }
+    
+    xSemaphoreGive(cache_mutex);
 }
