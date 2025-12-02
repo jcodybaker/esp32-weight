@@ -40,5 +40,5 @@ void app_main(void)
     weight_init(settings, http_server);
     ota_init(settings, http_server);
     metrics_init(settings, http_server);
-    bthome_observer_init();
+    bthome_observer_init(settings, http_server);
 }

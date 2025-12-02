@@ -573,7 +573,6 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     while (selected_count < 256) {
         char key_buf[32];
         snprintf(key_buf, sizeof(key_buf), "bthome_objects%%5B%zu%%5D", selected_count);
-        ESP_LOGI(TAG, "Looking for key: %s", key_buf);
         if (httpd_query_key_value(query_ptr, key_buf, param_buf, sizeof(param_buf)) == ESP_OK) {
             int id_value = atoi(param_buf);
             if (id_value >= 0 && id_value <= 255) {

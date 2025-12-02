@@ -110,8 +110,9 @@ static esp_err_t basic_auth_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-esp_err_t httpd_register_uri_handler_with_basic_auth(settings_t *settings, httpd_handle_t server, httpd_uri_t *uri_handler)
+esp_err_t httpd_register_uri_handler_with_basic_auth(void *settings_ptr, httpd_handle_t server, httpd_uri_t *uri_handler)
 {
+    settings_t *settings = (settings_t *)settings_ptr;
     ESP_LOGI(TAG, "httpd_register_uri_handler_with_basic_auth settings ptr %p", settings);
     basic_auth_wrap_t *wrapper = malloc(sizeof(basic_auth_wrap_t));
     if (!wrapper) {
