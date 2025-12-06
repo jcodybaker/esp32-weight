@@ -29,6 +29,48 @@ typedef struct {
 static bthome_sensor_mapping_t bthome_sensor_map[MAX_BTHOME_SENSORS];
 static int bthome_sensor_count = 0;
 static SemaphoreHandle_t sensor_map_mutex = NULL;
+static settings_t *g_settings = NULL;
+
+// Forward declarations
+static bool mac_equal(const esp_bd_addr_t a, const esp_bd_addr_t b);
+
+// Compare two MAC addresses
+static bool mac_equal(const esp_bd_addr_t a, const esp_bd_addr_t b) {
+    return memcmp(a, b, 6) == 0;
+}
+
+// Check if a MAC address is in the enabled filters
+static bool is_mac_enabled(const esp_bd_addr_t addr, char *name_out, size_t name_size) {
+    if (g_settings == NULL || g_settings->mac_filters == NULL) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < g_settings->mac_filters_count; i++) {
+        if (g_settings->mac_filters[i].enabled &&
+            mac_equal(g_settings->mac_filters[i].mac_addr, addr)) {
+            if (name_out && name_size > 0) {
+                strncpy(name_out, g_settings->mac_filters[i].name, name_size - 1);
+                name_out[name_size - 1] = '\0';
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
+// Check if an object ID is selected
+static bool is_object_id_selected(uint8_t object_id) {
+    if (g_settings == NULL || g_settings->selected_bthome_object_ids == NULL) {
+        return false;
+    }
+    
+    for (size_t i = 0; i < g_settings->selected_bthome_object_ids_count; i++) {
+        if (g_settings->selected_bthome_object_ids[i] == object_id) {
+            return true;
+        }
+    }
+    return false;
+}
 
 // LFU Cache Entry
 typedef struct {
@@ -43,11 +85,6 @@ typedef struct {
 // LFU Cache
 static cache_entry_t packet_cache[CACHE_SIZE];
 static SemaphoreHandle_t cache_mutex = NULL;
-
-// Compare two MAC addresses
-static bool mac_equal(const esp_bd_addr_t a, const esp_bd_addr_t b) {
-    return memcmp(a, b, 6) == 0;
-}
 
 // Find the LFU entry to evict (lowest frequency, oldest if tie)
 static int find_lfu_entry(void) {
@@ -296,10 +333,20 @@ static esp_err_t bthome_packets_handler(httpd_req_t *req) {
 }
 
 // Find or register a BTHome sensor in the sensor system
-static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id,
-                                           const char *device_name) {
+static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id) {
     if (sensor_map_mutex == NULL) {
         return -1;
+    }
+    
+    // Check if this MAC is enabled in settings
+    char device_name[32];
+    if (!is_mac_enabled(addr, device_name, sizeof(device_name))) {
+        return -1;  // MAC not in enabled filters
+    }
+    
+    // Check if this object ID is selected in settings
+    if (!is_object_id_selected(object_id)) {
+        return -1;  // Object ID not selected
     }
     
     xSemaphoreTake(sensor_map_mutex, portMAX_DELAY);
@@ -325,17 +372,39 @@ static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id,
     const char *type_name = bthome_get_object_name(object_id);
     const char *unit = bthome_get_object_unit(object_id);
     
-    // Create sensor name
+    // Create sensor name using configured device name from settings
     char sensor_name[SENSOR_NAME_MAX_LEN];
-    if (device_name != NULL && device_name[0] != '\0') {
-        // Use device name if available
-        snprintf(sensor_name, sizeof(sensor_name), "%s %s", 
-                 device_name, type_name ? type_name : "?");
+    sensor_name[0] = '\0';
+    
+    if (device_name[0] != '\0' && type_name != NULL) {
+        // Use configured name + measurement type
+        // Use strncpy and strncat to avoid truncation warnings
+        strncpy(sensor_name, device_name, sizeof(sensor_name) - 1);
+        sensor_name[sizeof(sensor_name) - 1] = '\0';
+        
+        size_t len = strlen(sensor_name);
+        if (len < sizeof(sensor_name) - 2) {
+            sensor_name[len] = ' ';
+            sensor_name[len + 1] = '\0';
+            strncat(sensor_name, type_name, sizeof(sensor_name) - strlen(sensor_name) - 1);
+        }
+    } else if (type_name != NULL) {
+        // Fallback to just measurement type
+        strncpy(sensor_name, type_name, sizeof(sensor_name) - 1);
+        sensor_name[sizeof(sensor_name) - 1] = '\0';
     } else {
-        // Use MAC suffix for uniqueness
-        snprintf(sensor_name, sizeof(sensor_name), "%s %02X%02X",
-                 type_name ? type_name : "Sensor",
-                 addr[4], addr[5]);
+        // Last resort fallback - use hex format
+        const char prefix[] = "Sensor 0x";
+        strncpy(sensor_name, prefix, sizeof(sensor_name) - 1);
+        size_t prefix_len = strlen(sensor_name);
+        if (prefix_len < sizeof(sensor_name) - 3) {
+            // Manually format the hex value to avoid snprintf warning
+            char hex[3];
+            hex[0] = "0123456789ABCDEF"[(object_id >> 4) & 0xF];
+            hex[1] = "0123456789ABCDEF"[object_id & 0xF];
+            hex[2] = '\0';
+            strncat(sensor_name, hex, sizeof(sensor_name) - prefix_len - 1);
+        }
     }
     
     // Register with sensor system
@@ -376,23 +445,14 @@ static void bthome_packet_callback(esp_bd_addr_t addr, int rssi,
     
     ESP_LOGI(TAG, "BTHome packet from %s (RSSI: %d dBm)", mac_str, rssi);
     
-    // Extract device name for sensor registration
-    char device_name[32] = "";
-    if (packet->device_name != NULL && packet->device_name_len > 0) {
-        size_t copy_len = packet->device_name_len < sizeof(device_name) - 1 ? 
-                         packet->device_name_len : sizeof(device_name) - 1;
-        memcpy(device_name, packet->device_name, copy_len);
-        device_name[copy_len] = '\0';
-    }
-    
-    // Register and update sensors for all measurements
+    // Register and update sensors for all measurements (filtered by settings)
     for (size_t i = 0; i < packet->measurement_count; i++) {
         const bthome_measurement_t *m = &packet->measurements[i];
         float factor = bthome_get_scaling_factor(m->object_id);
         float value = bthome_get_scaled_value(m, factor);
         
-        // Find or register this sensor
-        int sensor_id = find_or_register_bthome_sensor(addr, m->object_id, device_name);
+        // Find or register this sensor (only if MAC and object_id are enabled in settings)
+        int sensor_id = find_or_register_bthome_sensor(addr, m->object_id);
         if (sensor_id >= 0) {
             // Update sensor value
             sensors_update(sensor_id, value, true);
@@ -478,6 +538,9 @@ static void bthome_packet_callback(esp_bd_addr_t addr, int rssi,
 }
 
 void bthome_observer_init(settings_t *settings, httpd_handle_t server) {
+    // Store settings pointer for filtering
+    g_settings = settings;
+    
     // Initialize cache
     memset(packet_cache, 0, sizeof(packet_cache));
     cache_mutex = xSemaphoreCreateMutex();

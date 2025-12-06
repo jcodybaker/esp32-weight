@@ -4,6 +4,9 @@
 #include <esp_http_server.h>
 #include <esp_app_format.h>
 #include <esp_ota_ops.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/semphr.h>
 #include <string.h>
 #include <time.h>
 #include <inttypes.h>
@@ -13,6 +16,9 @@ static const char *TAG = "sensors";
 // Sensor registry
 static sensor_data_t sensors[MAX_SENSORS];
 static int sensor_count = 0;
+static SemaphoreHandle_t sensors_mutex = NULL;
+
+#define SENSOR_STALE_TIMEOUT_SECONDS 600  // 10 minutes
 
 static const char *sensors_display_html = ""
     "<!DOCTYPE html>\n"
@@ -148,6 +154,10 @@ static esp_err_t sensors_data_handler(httpd_req_t *req) {
         return ESP_FAIL;
     }
     
+    if (sensors_mutex != NULL) {
+        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
+    }
+    
     int pos = snprintf(json_buf, 2048, "{\"sensors\":[");
     
     for (int i = 0; i < sensor_count && pos < 2000; i++) {
@@ -165,6 +175,10 @@ static esp_err_t sensors_data_handler(httpd_req_t *req) {
     }
     
     pos += snprintf(json_buf + pos, 2048 - pos, "]}");
+    
+    if (sensors_mutex != NULL) {
+        xSemaphoreGive(sensors_mutex);
+    }
     
     httpd_resp_set_status(req, HTTPD_200);
     httpd_resp_set_type(req, "application/json");
@@ -218,9 +232,16 @@ static httpd_uri_t version_uri = {
 };
 
 int sensors_register(const char *name, const char *unit) {
+    if (sensors_mutex != NULL) {
+        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
+    }
+    
     if (sensor_count >= MAX_SENSORS) {
         ESP_LOGE(TAG, "Cannot register sensor '%s': maximum number of sensors (%d) reached", 
                  name, MAX_SENSORS);
+        if (sensors_mutex != NULL) {
+            xSemaphoreGive(sensors_mutex);
+        }
         return -1;
     }
     
@@ -239,12 +260,22 @@ int sensors_register(const char *name, const char *unit) {
     
     ESP_LOGI(TAG, "Registered sensor %d: '%s' (%s)", id, sensors[id].name, sensors[id].unit);
     
+    if (sensors_mutex != NULL) {
+        xSemaphoreGive(sensors_mutex);
+    }
     return id;
 }
 
 bool sensors_update(int sensor_id, float value, bool available) {
+    if (sensors_mutex != NULL) {
+        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
+    }
+    
     if (sensor_id < 0 || sensor_id >= sensor_count) {
         ESP_LOGE(TAG, "Invalid sensor_id %d (valid range: 0-%d)", sensor_id, sensor_count - 1);
+        if (sensors_mutex != NULL) {
+            xSemaphoreGive(sensors_mutex);
+        }
         return false;
     }
     
@@ -252,14 +283,24 @@ bool sensors_update(int sensor_id, float value, bool available) {
     sensors[sensor_id].available = available;
     sensors[sensor_id].last_updated = time(NULL);
     
+    if (sensors_mutex != NULL) {
+        xSemaphoreGive(sensors_mutex);
+    }
     return true;
 }
 
 float sensors_get_value(int sensor_id, bool *available) {
+    if (sensors_mutex != NULL) {
+        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
+    }
+    
     if (sensor_id < 0 || sensor_id >= sensor_count) {
         ESP_LOGE(TAG, "Invalid sensor_id %d (valid range: 0-%d)", sensor_id, sensor_count - 1);
         if (available) {
             *available = false;
+        }
+        if (sensors_mutex != NULL) {
+            xSemaphoreGive(sensors_mutex);
         }
         return 0.0f;
     }
@@ -268,15 +309,56 @@ float sensors_get_value(int sensor_id, bool *available) {
         *available = sensors[sensor_id].available;
     }
     
-    return sensors[sensor_id].value;
+    float value = sensors[sensor_id].value;
+    
+    if (sensors_mutex != NULL) {
+        xSemaphoreGive(sensors_mutex);
+    }
+    return value;
 }
 
+
+// Cleanup task to mark stale sensors as unavailable
+static void sensor_cleanup_task(void *pvParameters) {
+    while (1) {
+        vTaskDelay(pdMS_TO_TICKS(60000));  // Check every minute
+        
+        if (sensors_mutex != NULL) {
+            xSemaphoreTake(sensors_mutex, portMAX_DELAY);
+        }
+        
+        time_t now = time(NULL);
+        for (int i = 0; i < sensor_count; i++) {
+            if (sensors[i].available && sensors[i].last_updated > 0) {
+                time_t age = now - sensors[i].last_updated;
+                if (age > SENSOR_STALE_TIMEOUT_SECONDS) {
+                    ESP_LOGW(TAG, "Sensor %d (%s) is stale (%ld seconds old), marking unavailable",
+                             i, sensors[i].name, (long)age);
+                    sensors[i].available = false;
+                }
+            }
+        }
+        
+        if (sensors_mutex != NULL) {
+            xSemaphoreGive(sensors_mutex);
+        }
+    }
+}
 
 void sensors_init(settings_t *settings, httpd_handle_t server)
 {
     // Initialize sensor array
     memset(sensors, 0, sizeof(sensors));
     sensor_count = 0;
+    
+    // Create mutex for thread safety
+    sensors_mutex = xSemaphoreCreateMutex();
+    if (sensors_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create sensors mutex");
+    }
+    
+    // Start cleanup task
+    xTaskCreate(sensor_cleanup_task, "sensor_cleanup", 2048, NULL, 5, NULL);
     
     // Set user_ctx to settings so handlers can access hostname
     sensors_display_uri.user_ctx = settings;
