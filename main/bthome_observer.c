@@ -31,9 +31,6 @@ static int bthome_sensor_count = 0;
 static SemaphoreHandle_t sensor_map_mutex = NULL;
 static settings_t *g_settings = NULL;
 
-// Forward declarations
-static bool mac_equal(const esp_bd_addr_t a, const esp_bd_addr_t b);
-
 // Compare two MAC addresses
 static bool mac_equal(const esp_bd_addr_t a, const esp_bd_addr_t b) {
     return memcmp(a, b, 6) == 0;

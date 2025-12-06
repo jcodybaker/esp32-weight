@@ -362,18 +362,28 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "  e.preventDefault();\n"
         "  var formData = new FormData(this);\n"
         "  var params = new URLSearchParams();\n"
+        "  // Handle BTHome objects multi-select\n"
+        "  var select = document.getElementById('bthome_objects');\n"
+        "  var selectedOptions = Array.from(select.selectedOptions);\n"
+        "  params.append('bthome_objects_count', selectedOptions.length);\n"
+        "  for (var i = 0; i < selectedOptions.length; i++) {\n"
+        "    params.append('bthome_objects[' + i + ']', selectedOptions[i].value);\n"
+        "  }\n"
+        "  // Count MAC filters\n"
+        "  var macFilterCount = 0;\n"
+        "  var macInputs = document.querySelectorAll('input[name^=\"mac_filter[\"][name$=\"[mac]\"]');\n"
+        "  macInputs.forEach(function(input) {\n"
+        "    if (input.value) macFilterCount++;\n"
+        "  });\n"
+        "  params.append('mac_filter_count', macFilterCount);\n"
+        "  // Process all other form fields\n"
         "  for (var pair of formData.entries()) {\n"
         "    if (pair[1]) {\n"
-        "      // Handle multi-select specially\n"
+        "      // Skip bthome_objects (already handled above)\n"
         "      if (pair[0] === 'bthome_objects') {\n"
-        "        var select = document.getElementById('bthome_objects');\n"
-        "        var selectedOptions = Array.from(select.selectedOptions);\n"
-        "        for (var i = 0; i < selectedOptions.length; i++) {\n"
-        "          params.append('bthome_objects[' + i + ']', selectedOptions[i].value);\n"
-        "        }\n"
-        "      } else {\n"
-        "        params.append(pair[0], pair[1]);\n"
+        "        continue;\n"
         "      }\n"
+        "      params.append(pair[0], pair[1]);\n"
         "    } else if (pair[0].startsWith('mac_filter[') && pair[0].includes('[mac]')) {\n"
         "      // Include MAC filter fields even if empty for proper indexing\n"
         "      params.append(pair[0], pair[1]);\n"
@@ -664,24 +674,29 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     }
     
     // Check and update BTHome object IDs
-    // The multi-select will send multiple parameters with the same name
-    // We need to parse them all and create a blob
-    uint8_t *selected_ids = malloc(256);  // Maximum 256 object IDs
-    if (!selected_ids) {
-        nvs_close(settings_handle);
-        free(query_buf);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
-        return ESP_ERR_NO_MEM;
-    }
-    size_t selected_count = 0;
-    
-    // Parse all bthome_objects[] parameters
-    char *query_ptr = query_buf;
-    ESP_LOGI(TAG, "Parsing BTHome object IDs from query string %s", query_buf);
-    while (selected_count < 256) {
-        char key_buf[32];
-        snprintf(key_buf, sizeof(key_buf), "bthome_objects%%5B%zu%%5D", selected_count);
-        if (httpd_query_key_value(query_ptr, key_buf, param_buf, sizeof(param_buf)) == ESP_OK) {
+    // Only process if bthome_objects_count field is present in the query
+    if (httpd_query_key_value(query_buf, "bthome_objects_count", param_buf, sizeof(param_buf)) == ESP_OK) {
+        size_t expected_count = (size_t)atoi(param_buf);
+        ESP_LOGI(TAG, "BTHome objects count field present: %zu", expected_count);
+        
+        // The multi-select will send multiple parameters with the same name
+        // We need to parse them all and create a blob
+        uint8_t *selected_ids = malloc(256);  // Maximum 256 object IDs
+        if (!selected_ids) {
+            nvs_close(settings_handle);
+            free(query_buf);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+        size_t selected_count = 0;
+        
+        // Parse all bthome_objects[] parameters
+        char *query_ptr = query_buf;
+        ESP_LOGI(TAG, "Parsing BTHome object IDs from query string");
+        while (selected_count < 256) {
+            char key_buf[32];
+            snprintf(key_buf, sizeof(key_buf), "bthome_objects%%5B%zu%%5D", selected_count);
+            if (httpd_query_key_value(query_ptr, key_buf, param_buf, sizeof(param_buf)) == ESP_OK) {
             int id_value = atoi(param_buf);
             if (id_value >= 0 && id_value <= 255) {
                 selected_ids[selected_count] = (uint8_t)id_value;
@@ -748,25 +763,33 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         } else {
             ESP_LOGE(TAG, "Failed to write bthome_obj_ids to NVS: %s", esp_err_to_name(err));
         }
+        } else {
+            ESP_LOGI(TAG, "BTHome object IDs unchanged");
+        }
+        free(selected_ids);
     } else {
-        ESP_LOGI(TAG, "BTHome object IDs unchanged");
+        ESP_LOGI(TAG, "BTHome object IDs field not present in request, skipping");
     }
-    free(selected_ids);
     
     // Check and update MAC address filters
-    // Format: mac_filter[N][field]=value where field is: mac, name, enabled
-    mac_filter_t *filters = malloc(64 * sizeof(mac_filter_t));  // Maximum 64 filters
-    if (!filters) {
-        nvs_close(settings_handle);
-        free(query_buf);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
-        return ESP_ERR_NO_MEM;
-    }
-    size_t filter_count = 0;
-    
-    // Parse all mac_filter parameters
-    ESP_LOGI(TAG, "Parsing MAC address filters from query string");
-    for (size_t i = 0; i < 64; i++) {
+    // Only process if mac_filter_count field is present in the query
+    if (httpd_query_key_value(query_buf, "mac_filter_count", param_buf, sizeof(param_buf)) == ESP_OK) {
+        size_t expected_count = (size_t)atoi(param_buf);
+        ESP_LOGI(TAG, "MAC filter count field present: %zu", expected_count);
+        
+        // Format: mac_filter[N][field]=value where field is: mac, name, enabled
+        mac_filter_t *filters = malloc(64 * sizeof(mac_filter_t));  // Maximum 64 filters
+        if (!filters) {
+            nvs_close(settings_handle);
+            free(query_buf);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+        size_t filter_count = 0;
+        
+        // Parse all mac_filter parameters
+        ESP_LOGI(TAG, "Parsing MAC address filters from query string");
+        for (size_t i = 0; i < 64; i++) {
         char key_buf[64];
         bool filter_found = false;
         
@@ -872,8 +895,12 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         } else {
             ESP_LOGE(TAG, "Failed to write mac_filters to NVS: %s", esp_err_to_name(err));
         }
+        } else {
+            ESP_LOGI(TAG, "MAC filters unchanged");
+        }
+        free(filters);
     } else {
-        ESP_LOGI(TAG, "MAC filters unchanged");
+        ESP_LOGI(TAG, "MAC filter field not present in request, skipping");
     }
     
     
@@ -890,7 +917,6 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     }
     
     nvs_close(settings_handle);
-    free(filters);
     free(query_buf);
     
     if (updated) {
