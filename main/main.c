@@ -9,6 +9,7 @@
 #include "nvs_flash.h"
 #include "wifi.h"
 #include "weight.h"
+#include "sensors.h"
 #include "ota.h"
 #include "esp_event.h"
 #include "settings.h"
@@ -39,6 +40,7 @@ void app_main(void)
     wifi_init(settings);
     httpd_handle_t http_server = http_server_init();
     settings_register(settings, http_server);
+    sensors_init(settings, http_server);
     weight_init(settings, http_server);
     ota_init(settings, http_server);
     metrics_init(settings, http_server);

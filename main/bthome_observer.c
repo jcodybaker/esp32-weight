@@ -10,11 +10,25 @@
 #include "settings.h"
 #include "http_server.h"
 #include "bthome_observer.h"
+#include "sensors.h"
 
 static const char *TAG = "bthome_observer";
 extern bool g_ntp_initialized;
 
 #define CACHE_SIZE 10
+#define MAX_BTHOME_SENSORS 50
+
+// BTHome sensor mapping for integration with sensor system
+typedef struct {
+    esp_bd_addr_t addr;
+    uint8_t object_id;
+    int sensor_id;
+    bool registered;
+} bthome_sensor_mapping_t;
+
+static bthome_sensor_mapping_t bthome_sensor_map[MAX_BTHOME_SENSORS];
+static int bthome_sensor_count = 0;
+static SemaphoreHandle_t sensor_map_mutex = NULL;
 
 // LFU Cache Entry
 typedef struct {
@@ -281,6 +295,70 @@ static esp_err_t bthome_packets_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// Find or register a BTHome sensor in the sensor system
+static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id,
+                                           const char *device_name) {
+    if (sensor_map_mutex == NULL) {
+        return -1;
+    }
+    
+    xSemaphoreTake(sensor_map_mutex, portMAX_DELAY);
+    
+    // Check if already registered
+    for (int i = 0; i < bthome_sensor_count; i++) {
+        if (mac_equal(bthome_sensor_map[i].addr, addr) && 
+            bthome_sensor_map[i].object_id == object_id) {
+            int sensor_id = bthome_sensor_map[i].sensor_id;
+            xSemaphoreGive(sensor_map_mutex);
+            return sensor_id;
+        }
+    }
+    
+    // Not found, register new sensor
+    if (bthome_sensor_count >= MAX_BTHOME_SENSORS) {
+        ESP_LOGW(TAG, "Maximum BTHome sensors reached (%d)", MAX_BTHOME_SENSORS);
+        xSemaphoreGive(sensor_map_mutex);
+        return -1;
+    }
+    
+    // Get sensor metadata
+    const char *type_name = bthome_get_object_name(object_id);
+    const char *unit = bthome_get_object_unit(object_id);
+    
+    // Create sensor name
+    char sensor_name[SENSOR_NAME_MAX_LEN];
+    if (device_name != NULL && device_name[0] != '\0') {
+        // Use device name if available
+        snprintf(sensor_name, sizeof(sensor_name), "%s %s", 
+                 device_name, type_name ? type_name : "?");
+    } else {
+        // Use MAC suffix for uniqueness
+        snprintf(sensor_name, sizeof(sensor_name), "%s %02X%02X",
+                 type_name ? type_name : "Sensor",
+                 addr[4], addr[5]);
+    }
+    
+    // Register with sensor system
+    int sensor_id = sensors_register(sensor_name, unit ? unit : "");
+    if (sensor_id < 0) {
+        ESP_LOGE(TAG, "Failed to register BTHome sensor: %s", sensor_name);
+        xSemaphoreGive(sensor_map_mutex);
+        return -1;
+    }
+    
+    // Store mapping
+    memcpy(bthome_sensor_map[bthome_sensor_count].addr, addr, 6);
+    bthome_sensor_map[bthome_sensor_count].object_id = object_id;
+    bthome_sensor_map[bthome_sensor_count].sensor_id = sensor_id;
+    bthome_sensor_map[bthome_sensor_count].registered = true;
+    bthome_sensor_count++;
+    
+    ESP_LOGI(TAG, "Registered BTHome sensor: %s (ID %d)", sensor_name, sensor_id);
+    
+    xSemaphoreGive(sensor_map_mutex);
+    return sensor_id;
+}
+
 static void bthome_packet_callback(esp_bd_addr_t addr, int rssi, 
                                     const bthome_packet_t *packet, void *user_data) {
     if (g_ntp_initialized == false) {
@@ -297,6 +375,29 @@ static void bthome_packet_callback(esp_bd_addr_t addr, int rssi,
              addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
     
     ESP_LOGI(TAG, "BTHome packet from %s (RSSI: %d dBm)", mac_str, rssi);
+    
+    // Extract device name for sensor registration
+    char device_name[32] = "";
+    if (packet->device_name != NULL && packet->device_name_len > 0) {
+        size_t copy_len = packet->device_name_len < sizeof(device_name) - 1 ? 
+                         packet->device_name_len : sizeof(device_name) - 1;
+        memcpy(device_name, packet->device_name, copy_len);
+        device_name[copy_len] = '\0';
+    }
+    
+    // Register and update sensors for all measurements
+    for (size_t i = 0; i < packet->measurement_count; i++) {
+        const bthome_measurement_t *m = &packet->measurements[i];
+        float factor = bthome_get_scaling_factor(m->object_id);
+        float value = bthome_get_scaled_value(m, factor);
+        
+        // Find or register this sensor
+        int sensor_id = find_or_register_bthome_sensor(addr, m->object_id, device_name);
+        if (sensor_id >= 0) {
+            // Update sensor value
+            sensors_update(sensor_id, value, true);
+        }
+    }
     
     // Print device name if present
     if (packet->device_name != NULL && packet->device_name_len > 0) {
@@ -382,6 +483,15 @@ void bthome_observer_init(settings_t *settings, httpd_handle_t server) {
     cache_mutex = xSemaphoreCreateMutex();
     if (cache_mutex == NULL) {
         ESP_LOGE(TAG, "Failed to create cache mutex");
+        return;
+    }
+    
+    // Initialize BTHome sensor mapping
+    memset(bthome_sensor_map, 0, sizeof(bthome_sensor_map));
+    bthome_sensor_count = 0;
+    sensor_map_mutex = xSemaphoreCreateMutex();
+    if (sensor_map_mutex == NULL) {
+        ESP_LOGE(TAG, "Failed to create sensor map mutex");
         return;
     }
     

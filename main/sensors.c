@@ -1,0 +1,300 @@
+#include "sensors.h"
+#include "settings.h"
+#include <esp_log.h>
+#include <esp_http_server.h>
+#include <esp_app_format.h>
+#include <esp_ota_ops.h>
+#include <string.h>
+#include <time.h>
+#include <inttypes.h>
+
+static const char *TAG = "sensors";
+
+// Sensor registry
+static sensor_data_t sensors[MAX_SENSORS];
+static int sensor_count = 0;
+
+static const char *sensors_display_html = ""
+    "<!DOCTYPE html>\n"
+    "<html>\n"
+    "<head>\n"
+    "<title>Sensor Station</title>\n"
+    "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
+    "<style>\n"
+    "body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; text-align: center; }\n"
+    "h1 { color: #333; }\n"
+    ".sensors-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin: 20px 0; }\n"
+    ".sensor-card { background: #f4f4f4; padding: 20px; border-radius: 8px; }\n"
+    ".sensor-name { font-size: 18px; color: #666; margin-bottom: 10px; }\n"
+    ".sensor-value { font-size: 48px; font-weight: bold; color: #4CAF50; margin: 10px 0; word-wrap: break-word; }\n"
+    ".sensor-unit { font-size: 20px; color: #666; }\n"
+    ".sensor-updated { font-size: 12px; color: #999; margin-top: 10px; }\n"
+    ".status { padding: 10px; margin: 10px 0; border-radius: 4px; }\n"
+    ".status.active { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }\n"
+    ".status.inactive { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }\n"
+    ".unavailable { opacity: 0.5; }\n"
+    ".unavailable .sensor-value { color: #999; }\n"
+    "a { display: inline-block; margin: 10px 10px; color: #4CAF50; text-decoration: none; font-size: 18px; }\n"
+    "a:hover { text-decoration: underline; }\n"
+    "</style>\n"
+    "</head>\n"
+    "<body>\n"
+    "<h1>Sensor Station</h1>\n"
+    "<div id='sensors-container' class='sensors-grid'></div>\n"
+    "<div id='status' class='status inactive'>Loading...</div>\n"
+    "<a href='/settings'>Settings</a> | <a href='/bthome/packets'>BTHome Packets</a>\n"
+    "<script>\n"
+    "function formatTimeAgo(timestamp) {\n"
+    "  if (!timestamp || timestamp === 0) return 'Never';\n"
+    "  const now = Math.floor(Date.now() / 1000);\n"
+    "  const diff = now - timestamp;\n"
+    "  if (diff < 60) return diff + 's ago';\n"
+    "  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';\n"
+    "  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';\n"
+    "  return Math.floor(diff / 86400) + 'd ago';\n"
+    "}\n"
+    "function updateSensors() {\n"
+    "  fetch('/sensors/data')\n"
+    "    .then(response => response.json())\n"
+    "    .then(data => {\n"
+    "      const container = document.getElementById('sensors-container');\n"
+    "      if (data.sensors && data.sensors.length > 0) {\n"
+    "        container.innerHTML = data.sensors.map(sensor => {\n"
+    "          const availClass = sensor.available ? '' : 'unavailable';\n"
+    "          const value = sensor.available ? sensor.value.toLocaleString(undefined, {maximumFractionDigits: 2}) : '--';\n"
+    "          const updated = formatTimeAgo(sensor.last_updated);\n"
+    "          return `\n"
+    "            <div class='sensor-card ${availClass}'>\n"
+    "              <div class='sensor-name'>${sensor.name}</div>\n"
+    "              <div class='sensor-value'>${value}</div>\n"
+    "              <div class='sensor-unit'>${sensor.unit}</div>\n"
+    "              <div class='sensor-updated'>${updated}</div>\n"
+    "            </div>\n"
+    "          `;\n"
+    "        }).join('');\n"
+    "        document.getElementById('status').textContent = 'Active';\n"
+    "        document.getElementById('status').className = 'status active';\n"
+    "      } else {\n"
+    "        container.innerHTML = '<p style=\"grid-column: 1/-1; color: #999;\">No sensors registered</p>';\n"
+    "        document.getElementById('status').textContent = 'No sensors available';\n"
+    "        document.getElementById('status').className = 'status inactive';\n"
+    "      }\n"
+    "    })\n"
+    "    .catch(error => {\n"
+    "      document.getElementById('status').textContent = 'Error: ' + error;\n"
+    "      document.getElementById('status').className = 'status inactive';\n"
+    "    });\n"
+    "}\n"
+    "updateSensors();\n"
+    "setInterval(updateSensors, 1000);\n"
+    "</script>\n"
+    "<footer style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 12px;'>\n"
+    "<div id='version'>Loading version...</div>\n"
+    "</footer>\n"
+    "<script>\n"
+    "fetch('/version')\n"
+    "  .then(response => response.json())\n"
+    "  .then(data => {\n"
+    "    document.getElementById('version').innerHTML = \n"
+    "      'Firmware: ' + data.version + '<br>Hash: ' + data.hash;\n"
+    "  })\n"
+    "  .catch(() => {\n"
+    "    document.getElementById('version').textContent = 'Version info unavailable';\n"
+    "  });\n"
+    "</script>\n"
+    "</body>\n"
+    "</html>\n";
+
+static esp_err_t sensors_display_handler(httpd_req_t *req) {
+    settings_t *settings = (settings_t *)req->user_ctx;
+    const char *hostname = (settings->hostname != NULL && settings->hostname[0] != '\0') 
+                            ? settings->hostname : "unknown";
+    
+    // Create a buffer for the complete HTML with hostname
+    char *html_with_hostname = malloc(strlen(sensors_display_html) + strlen(hostname) + 32);
+    if (html_with_hostname == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    // Replace "Sensor Station</h1>" with "Sensor Station: hostname</h1>"
+    const char *marker = "Sensor Station</h1>";
+    const char *pos = strstr(sensors_display_html, marker);
+    if (pos != NULL) {
+        size_t before_len = pos - sensors_display_html;
+        strcpy(html_with_hostname, sensors_display_html);
+        html_with_hostname[before_len] = '\0';
+        strcat(html_with_hostname, "Sensor Station: ");
+        strcat(html_with_hostname, hostname);
+        strcat(html_with_hostname, "</h1>");
+        strcat(html_with_hostname, pos + strlen(marker));
+    } else {
+        strcpy(html_with_hostname, sensors_display_html);
+    }
+    
+    httpd_resp_set_status(req, HTTPD_200);
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_send(req, html_with_hostname, strlen(html_with_hostname));
+    free(html_with_hostname);
+    return ESP_OK;
+}
+
+static esp_err_t sensors_data_handler(httpd_req_t *req) {
+    // Build JSON response with all sensors
+    char *json_buf = malloc(2048); // Allocate buffer for JSON
+    if (json_buf == NULL) {
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    
+    int pos = snprintf(json_buf, 2048, "{\"sensors\":[");
+    
+    for (int i = 0; i < sensor_count && pos < 2000; i++) {
+        if (i > 0) {
+            pos += snprintf(json_buf + pos, 2048 - pos, ",");
+        }
+        
+        pos += snprintf(json_buf + pos, 2048 - pos,
+                       "{\"name\":\"%s\",\"unit\":\"%s\",\"value\":%.2f,\"last_updated\":%" PRId64 ",\"available\":%s}",
+                       sensors[i].name,
+                       sensors[i].unit,
+                       sensors[i].value,
+                       (int64_t)sensors[i].last_updated,
+                       sensors[i].available ? "true" : "false");
+    }
+    
+    pos += snprintf(json_buf + pos, 2048 - pos, "]}");
+    
+    httpd_resp_set_status(req, HTTPD_200);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_send(req, json_buf, strlen(json_buf));
+    free(json_buf);
+    return ESP_OK;
+}
+
+static esp_err_t version_handler(httpd_req_t *req) {
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    char json_buf[256];
+    
+    // Format the hash as a hex string (first 8 bytes for brevity)
+    char hash_str[17];
+    for (int i = 0; i < 8; i++) {
+        sprintf(&hash_str[i * 2], "%02x", app_desc->app_elf_sha256[i]);
+    }
+    hash_str[16] = '\0';
+    
+    snprintf(json_buf, sizeof(json_buf), 
+            "{\"version\":\"%s\",\"hash\":\"%s\",\"date\":\"%s\",\"time\":\"%s\"}",
+            app_desc->version, hash_str, app_desc->date, app_desc->time);
+    
+    httpd_resp_set_status(req, HTTPD_200);
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+    httpd_resp_send(req, json_buf, strlen(json_buf));
+    return ESP_OK;
+}
+
+static httpd_uri_t sensors_display_uri = {
+    .uri       = "/",
+    .method    = HTTP_GET,
+    .handler   = sensors_display_handler,
+    .user_ctx  = NULL
+};
+
+static httpd_uri_t sensors_data_uri = {
+    .uri       = "/sensors/data",
+    .method    = HTTP_GET,
+    .handler   = sensors_data_handler,
+    .user_ctx  = NULL
+};
+
+static httpd_uri_t version_uri = {
+    .uri       = "/version",
+    .method    = HTTP_GET,
+    .handler   = version_handler,
+    .user_ctx  = NULL
+};
+
+int sensors_register(const char *name, const char *unit) {
+    if (sensor_count >= MAX_SENSORS) {
+        ESP_LOGE(TAG, "Cannot register sensor '%s': maximum number of sensors (%d) reached", 
+                 name, MAX_SENSORS);
+        return -1;
+    }
+    
+    int id = sensor_count++;
+    
+    // Copy name and unit, ensuring null termination
+    strncpy(sensors[id].name, name, SENSOR_NAME_MAX_LEN - 1);
+    sensors[id].name[SENSOR_NAME_MAX_LEN - 1] = '\0';
+    
+    strncpy(sensors[id].unit, unit, SENSOR_UNIT_MAX_LEN - 1);
+    sensors[id].unit[SENSOR_UNIT_MAX_LEN - 1] = '\0';
+    
+    sensors[id].value = 0.0f;
+    sensors[id].last_updated = 0;
+    sensors[id].available = false;
+    
+    ESP_LOGI(TAG, "Registered sensor %d: '%s' (%s)", id, sensors[id].name, sensors[id].unit);
+    
+    return id;
+}
+
+bool sensors_update(int sensor_id, float value, bool available) {
+    if (sensor_id < 0 || sensor_id >= sensor_count) {
+        ESP_LOGE(TAG, "Invalid sensor_id %d (valid range: 0-%d)", sensor_id, sensor_count - 1);
+        return false;
+    }
+    
+    sensors[sensor_id].value = value;
+    sensors[sensor_id].available = available;
+    sensors[sensor_id].last_updated = time(NULL);
+    
+    return true;
+}
+
+float sensors_get_value(int sensor_id, bool *available) {
+    if (sensor_id < 0 || sensor_id >= sensor_count) {
+        ESP_LOGE(TAG, "Invalid sensor_id %d (valid range: 0-%d)", sensor_id, sensor_count - 1);
+        if (available) {
+            *available = false;
+        }
+        return 0.0f;
+    }
+    
+    if (available) {
+        *available = sensors[sensor_id].available;
+    }
+    
+    return sensors[sensor_id].value;
+}
+
+
+void sensors_init(settings_t *settings, httpd_handle_t server)
+{
+    // Initialize sensor array
+    memset(sensors, 0, sizeof(sensors));
+    sensor_count = 0;
+    
+    // Set user_ctx to settings so handlers can access hostname
+    sensors_display_uri.user_ctx = settings;
+    
+    // Register HTTP handlers
+    esp_err_t err = httpd_register_uri_handler(server, &sensors_display_uri);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) registering sensor display handler!", esp_err_to_name(err));
+    }
+    
+    err = httpd_register_uri_handler(server, &sensors_data_uri);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) registering sensor data handler!", esp_err_to_name(err));
+    }
+    
+    err = httpd_register_uri_handler(server, &version_uri);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error (%s) registering version handler!", esp_err_to_name(err));
+    }
+    
+}
