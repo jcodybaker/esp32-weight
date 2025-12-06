@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <inttypes.h>
 #include <ctype.h>
+#include <time.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -221,6 +222,15 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         encoded_hostname ? encoded_hostname : "");
     httpd_resp_sendstr_chunk(req, buffer);
     free(encoded_hostname);
+    
+    // Send timezone with current value
+    char *encoded_timezone = url_encode(settings->timezone);
+    snprintf(buffer, 1024,
+        "<label for='timezone'>Timezone (e.g., EST5EDT,M3.2.0,M11.1.0):</label>\n"
+        "<input type='text' id='timezone' name='timezone' value='%s' placeholder='UTC0'>\n",
+        encoded_timezone ? encoded_timezone : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_timezone);
     
     // Send BTHome object IDs multi-select
     httpd_resp_sendstr_chunk(req,
@@ -627,6 +637,31 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             }
         }
     }
+
+    // Check and update timezone
+    if (httpd_query_key_value(query_buf, "timezone", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(decoded_param, param_buf);  // Decode URL encoding
+        if (strcmp(decoded_param, settings->timezone) == 0) {
+            ESP_LOGI(TAG, "Timezone unchanged");
+            decoded_param[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(decoded_param) > 0) {
+            err = nvs_set_str(settings_handle, "timezone", decoded_param);
+            if (err == ESP_OK) {
+                if (settings->timezone != NULL) {
+                    free(settings->timezone);
+                }
+                settings->timezone = strdup(decoded_param);
+                // Apply timezone using setenv and tzset
+                setenv("TZ", settings->timezone, 1);
+                tzset();
+                updated = true;
+                ESP_LOGI(TAG, "Updated timezone to %s", decoded_param);
+            } else {
+                ESP_LOGE(TAG, "Failed to write timezone to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
     
     // Check and update BTHome object IDs
     // The multi-select will send multiple parameters with the same name
@@ -889,6 +924,7 @@ esp_err_t settings_init(settings_t *settings)
     settings->wifi_ssid = NULL;
     settings->wifi_password = NULL;
     settings->hostname = NULL;
+    settings->timezone = NULL;
     settings->selected_bthome_object_ids = NULL;
     settings->selected_bthome_object_ids_count = 0;
     settings->mac_filters = NULL;
@@ -1095,6 +1131,37 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading hostname!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'timezone' from NVS...");
+    err = nvs_get_str(settings_handle, "timezone", NULL, &str_size);
+    switch (err) {
+        case ESP_OK:
+            settings->timezone = malloc(str_size);
+            if (settings->timezone == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for timezone");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "timezone", settings->timezone, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading timezone!", esp_err_to_name(err));
+                return err;
+            }
+            ESP_LOGI(TAG, "Read 'timezone' = '%s'", settings->timezone);
+            // Apply timezone using setenv and tzset
+            setenv("TZ", settings->timezone, 1);
+            tzset();
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->timezone = strdup("UTC0");
+            ESP_LOGI(TAG, "No value for 'timezone'; using default = '%s'", settings->timezone);
+            // Apply default timezone
+            setenv("TZ", settings->timezone, 1);
+            tzset();
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading timezone!", esp_err_to_name(err));
             return err;
     }
 

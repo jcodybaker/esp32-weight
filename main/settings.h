@@ -24,6 +24,7 @@ typedef struct {
     char * wifi_password;
     bool wifi_ap_fallback_disable;
     char * hostname;
+    char * timezone;
     uint8_t *selected_bthome_object_ids;
     size_t selected_bthome_object_ids_count;
     mac_filter_t *mac_filters;         // Array of MAC address filters
