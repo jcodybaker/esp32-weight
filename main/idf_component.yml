@@ -17,3 +17,5 @@ dependencies:
   esp-idf-lib/hx711: ^1.0.6
   espressif/iqmath: ^1.11.0
   jcodybaker/bthome: '*'
+  espressif/ds18b20: ^0.2.0
+  espressif/onewire_bus: ^1.0.4

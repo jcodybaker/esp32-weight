@@ -8,7 +8,6 @@
 */
 #include "nvs_flash.h"
 #include "wifi.h"
-#include "weight.h"
 #include "sensors.h"
 #include "ota.h"
 #include "esp_event.h"
@@ -31,7 +30,6 @@ void app_main(void)
     ESP_ERROR_CHECK(ret);
 
     ESP_ERROR_CHECK(esp_event_loop_create_default());
-
     
     settings_t *settings = malloc(sizeof(settings_t));
     ESP_LOGI("main", "app_main settings ptr %p", settings);
@@ -41,7 +39,7 @@ void app_main(void)
     httpd_handle_t http_server = http_server_init();
     settings_register(settings, http_server);
     sensors_init(settings, http_server);
-    weight_init(settings, http_server);
+    // weight_init(settings);
     ota_init(settings, http_server);
     metrics_init(settings, http_server);
     bthome_observer_init(settings, http_server);

@@ -12,7 +12,6 @@
 #include "weight.h"
 #include "sensors.h"
 #include "settings.h"
-#include "http_server.h"
 
 static const char *TAG = "hx711";
 
@@ -141,7 +140,7 @@ uint32_t weight_get_latest_raw(bool *available) {
     return g_latest_weight_raw;
 }
 
-void weight_init(settings_t *settings, httpd_handle_t server)
+void weight_init(settings_t *settings)
 {
     // Register weight sensors
     sensor_id_grams = sensors_register("Weight", "g");
