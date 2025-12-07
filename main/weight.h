@@ -6,7 +6,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-void weight_init(settings_t *settings, httpd_handle_t server);
+void weight_init(settings_t *settings);
 float weight_get_latest(bool *available);
 uint32_t weight_get_latest_raw(bool *available);
 

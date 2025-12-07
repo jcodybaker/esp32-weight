@@ -39,6 +39,17 @@ dependencies:
     - esp32s2
     - esp32s3
     version: 1.0.7
+  espressif/ds18b20:
+    component_hash: 9792f38a20eb2fe7435cba349e3b4b7085381f05400233aacd849ced69e2207f
+    dependencies:
+    - name: espressif/onewire_bus
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.0.0
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.2.0
   espressif/iqmath:
     component_hash: 407d5bc3fd358a73d2b09982918ab508b4e804cc547942c5979d226be86b7e75
     dependencies:
@@ -49,6 +60,16 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.11.0
+  espressif/onewire_bus:
+    component_hash: 11729fd9a5de80225177a61e9cd77de91683b8ec300e83710d5327b666dbe884
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.4
   idf:
     source:
       type: idf
@@ -62,9 +83,11 @@ dependencies:
     version: 0.0.5
 direct_dependencies:
 - esp-idf-lib/hx711
+- espressif/ds18b20
 - espressif/iqmath
+- espressif/onewire_bus
 - idf
 - jcodybaker/bthome
-manifest_hash: e060ba912e1126cd45a6b0fe68f15fb148b65b2bb5273d3b611261abc4054ae0
+manifest_hash: e6b59748284b5a2b7c358073aa7450e2d26f2aaaaa3d5c8b3be5eda95bf8f9b5
 target: esp32
 version: 2.0.0
