@@ -32,6 +32,7 @@
 #include <esp_app_format.h>
 #include "IQmathLib.h"
 #include "bthome.h"
+#include "temperature.h"
 
 static const char *TAG = "settings";
 
@@ -353,6 +354,95 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "}\n"
         "</script>\n");
     
+    // Send DS18B20 device names section
+    httpd_resp_sendstr_chunk(req,
+        "<hr class='minor'/>\n"
+        "<label>DS18B20 Temperature Sensor Names:</label>\n"
+        "<div id='ds18b20_names_container'>\n");
+    
+    // Get currently detected DS18B20 devices
+    ds18b20_info_t detected_devices[EXAMPLE_ONEWIRE_MAX_DS18B20];
+    int detected_count = get_ds18b20_devices(detected_devices, EXAMPLE_ONEWIRE_MAX_DS18B20);
+    
+    // Create a merged list: detected devices with their saved names (if any)
+    size_t display_index = 0;
+    
+    // First, output all detected devices
+    for (int i = 0; i < detected_count; i++) {
+        char addr_str[17];
+        snprintf(addr_str, sizeof(addr_str), "%016llX", detected_devices[i].address);
+        
+        // Look up the name for this device
+        const char *device_name = settings_get_ds18b20_name(settings, detected_devices[i].address);
+        char *encoded_name = url_encode(device_name ? device_name : "");
+        
+        snprintf(buffer, 1024,
+            "<div class='ds18b20_name_row' style='margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px;'>\n"
+            "  <input type='text' name='ds18b20_name[%zu][address]' value='%s' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address' readonly>\n"
+            "  <input type='text' name='ds18b20_name[%zu][name]' value='%s' placeholder='Device Name' style='width: 250px;'>\n"
+            "  <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
+            "</div>\n",
+            display_index, addr_str, display_index, encoded_name ? encoded_name : "");
+        httpd_resp_sendstr_chunk(req, buffer);
+        free(encoded_name);
+        display_index++;
+    }
+    
+    // Then, output any saved device names for devices that are NOT currently detected
+    for (size_t i = 0; i < settings->ds18b20_names_count; i++) {
+        bool is_detected = false;
+        for (int j = 0; j < detected_count; j++) {
+            if (settings->ds18b20_names[i].address == detected_devices[j].address) {
+                is_detected = true;
+                break;
+            }
+        }
+        
+        if (!is_detected) {
+            char addr_str[17];
+            snprintf(addr_str, sizeof(addr_str), "%016llX", settings->ds18b20_names[i].address);
+            
+            char *encoded_name = url_encode(settings->ds18b20_names[i].name);
+            
+            snprintf(buffer, 1024,
+                "<div class='ds18b20_name_row' style='margin: 10px 0; padding: 10px; background: #eee; border: 1px solid #ddd; border-radius: 4px;'>\n"
+                "  <input type='text' name='ds18b20_name[%zu][address]' value='%s' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address'>\n"
+                "  <input type='text' name='ds18b20_name[%zu][name]' value='%s' placeholder='Device Name (not currently detected)' style='width: 250px;'>\n"
+                "  <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
+                "</div>\n",
+                display_index, addr_str, display_index, encoded_name ? encoded_name : "");
+            httpd_resp_sendstr_chunk(req, buffer);
+            free(encoded_name);
+            display_index++;
+        }
+    }
+    
+    httpd_resp_sendstr_chunk(req,
+        "</div>\n"
+        "<button type='button' onclick='addDS18B20Name()' style='width: auto; background: #007bff; margin-top: 10px;'>Add DS18B20 Name</button>\n"
+        "<script>\n"
+        "var ds18b20NameIndex = " );
+    
+    // Use display_index which accounts for all devices shown
+    snprintf(buffer, 1024, "%zu;\n", display_index);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    httpd_resp_sendstr_chunk(req,
+        "function addDS18B20Name() {\n"
+        "  var container = document.getElementById('ds18b20_names_container');\n"
+        "  var div = document.createElement('div');\n"
+        "  div.className = 'ds18b20_name_row';\n"
+        "  div.style = 'margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px;';\n"
+        "  div.innerHTML = `\n"
+        "    <input type='text' name='ds18b20_name[${ds18b20NameIndex}][address]' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address'>\n"
+        "    <input type='text' name='ds18b20_name[${ds18b20NameIndex}][name]' placeholder='Device Name' style='width: 250px;'>\n"
+        "    <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
+        "  `;\n"
+        "  container.appendChild(div);\n"
+        "  ds18b20NameIndex++;\n"
+        "}\n"
+        "</script>\n");
+    
     // Get firmware version info
     const esp_app_desc_t *app_desc = esp_app_get_description();
     char hash_str[17];
@@ -400,6 +490,13 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "    if (input.value) macFilterCount++;\n"
         "  });\n"
         "  params.append('mac_filter_count', macFilterCount);\n"
+        "  // Count DS18B20 names\n"
+        "  var ds18b20NameCount = 0;\n"
+        "  var ds18b20Inputs = document.querySelectorAll('input[name^=\"ds18b20_name[\"][name$=\"[address]\"]');\n"
+        "  ds18b20Inputs.forEach(function(input) {\n"
+        "    if (input.value) ds18b20NameCount++;\n"
+        "  });\n"
+        "  params.append('ds18b20_name_count', ds18b20NameCount);\n"
         "  // Process all other form fields\n"
         "  for (var pair of formData.entries()) {\n"
         "    if (pair[1]) {\n"
@@ -984,6 +1081,126 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         ESP_LOGI(TAG, "MAC filter field not present in request, skipping");
     }
     
+    // Check and update DS18B20 device names
+    // Only process if ds18b20_name_count field is present in the query
+    if (httpd_query_key_value(query_buf, "ds18b20_name_count", param_buf, sizeof(param_buf)) == ESP_OK) {
+        size_t expected_count = (size_t)atoi(param_buf);
+        ESP_LOGI(TAG, "DS18B20 name count field present: %zu", expected_count);
+        
+        // Format: ds18b20_name[N][field]=value where field is: address, name
+        ds18b20_name_t *names = malloc(64 * sizeof(ds18b20_name_t));  // Maximum 64 devices
+        if (!names) {
+            nvs_close(settings_handle);
+            free(query_buf);
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+        size_t name_count = 0;
+        
+        // Parse all ds18b20_name parameters
+        ESP_LOGI(TAG, "Parsing DS18B20 device names from query string");
+        for (size_t i = 0; i < 64; i++) {
+            char key_buf[64];
+            bool name_found = false;
+            
+            // Try to get address
+            snprintf(key_buf, sizeof(key_buf), "ds18b20_name%%5B%zu%%5D%%5Baddress%%5D", i);
+            if (httpd_query_key_value(query_buf, key_buf, param_buf, sizeof(param_buf)) == ESP_OK) {
+                url_decode(decoded_param, param_buf);
+                
+                // Parse address string (format: 16 hex characters)
+                uint64_t address = 0;
+                if (strlen(decoded_param) == 16 && sscanf(decoded_param, "%016llX", &address) == 1) {
+                    names[name_count].address = address;
+                    name_found = true;
+                } else if (strlen(decoded_param) == 16 && sscanf(decoded_param, "%016llx", &address) == 1) {
+                    names[name_count].address = address;
+                    name_found = true;
+                } else {
+                    ESP_LOGW(TAG, "Invalid DS18B20 address format: %s", decoded_param);
+                    continue;
+                }
+            } else {
+                break;  // No more names
+            }
+            
+            if (name_found) {
+                // Get name
+                snprintf(key_buf, sizeof(key_buf), "ds18b20_name%%5B%zu%%5D%%5Bname%%5D", i);
+                if (httpd_query_key_value(query_buf, key_buf, param_buf, sizeof(param_buf)) == ESP_OK) {
+                    url_decode(decoded_param, param_buf);
+                    strncpy(names[name_count].name, decoded_param, sizeof(names[name_count].name) - 1);
+                    names[name_count].name[sizeof(names[name_count].name) - 1] = '\0';
+                } else {
+                    names[name_count].name[0] = '\0';
+                }
+                
+                ESP_LOGI(TAG, "Found DS18B20 name[%zu]: address=%016llX, name='%s'",
+                         name_count,
+                         names[name_count].address,
+                         names[name_count].name);
+                
+                name_count++;
+            }
+        }
+        
+        // Check if DS18B20 names have changed
+        bool ds18b20_names_changed = false;
+        if (name_count != settings->ds18b20_names_count) {
+            ds18b20_names_changed = true;
+        } else {
+            for (size_t i = 0; i < name_count; i++) {
+                if (names[i].address != settings->ds18b20_names[i].address ||
+                    strcmp(names[i].name, settings->ds18b20_names[i].name) != 0) {
+                    ds18b20_names_changed = true;
+                    break;
+                }
+            }
+        }
+        
+        if (ds18b20_names_changed) {
+            if (name_count > 0) {
+                err = nvs_set_blob(settings_handle, "ds18b20_names", names, name_count * sizeof(ds18b20_name_t));
+            } else {
+                // If no names, erase the key
+                err = nvs_erase_key(settings_handle, "ds18b20_names");
+                if (err == ESP_ERR_NVS_NOT_FOUND) {
+                    err = ESP_OK;  // Already doesn't exist, that's fine
+                }
+            }
+            
+            if (err == ESP_OK) {
+                if (settings->ds18b20_names != NULL) {
+                    free(settings->ds18b20_names);
+                }
+                
+                if (name_count > 0) {
+                    settings->ds18b20_names = malloc(name_count * sizeof(ds18b20_name_t));
+                    if (settings->ds18b20_names != NULL) {
+                        memcpy(settings->ds18b20_names, names, name_count * sizeof(ds18b20_name_t));
+                        settings->ds18b20_names_count = name_count;
+                    } else {
+                        ESP_LOGE(TAG, "Failed to allocate memory for DS18B20 names");
+                        settings->ds18b20_names_count = 0;
+                    }
+                } else {
+                    settings->ds18b20_names = NULL;
+                    settings->ds18b20_names_count = 0;
+                }
+                
+                updated = true;
+                ESP_LOGI(TAG, "Updated DS18B20 names - count: %zu", name_count);
+            } else {
+                ESP_LOGE(TAG, "Failed to write ds18b20_names to NVS: %s", esp_err_to_name(err));
+            }
+        } else {
+            ESP_LOGI(TAG, "DS18B20 names unchanged");
+        }
+        free(names);
+    } else {
+        ESP_LOGI(TAG, "DS18B20 name field not present in request, skipping");
+    }
+    
     
     // Commit changes to NVS
     if (updated) {
@@ -1425,6 +1642,47 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
+    ESP_LOGI(TAG, "\\nReading 'ds18b20_names' from NVS...");
+    blob_size = 0;
+    err = nvs_get_blob(settings_handle, "ds18b20_names", NULL, &blob_size);
+    switch (err) {
+        case ESP_OK:
+            if (blob_size % sizeof(ds18b20_name_t) != 0) {
+                ESP_LOGE(TAG, "Invalid ds18b20_names blob size: %zu", blob_size);
+                break;
+            }
+            settings->ds18b20_names_count = blob_size / sizeof(ds18b20_name_t);
+            settings->ds18b20_names = malloc(blob_size);
+            if (settings->ds18b20_names == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for ds18b20_names");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_blob(settings_handle, "ds18b20_names", settings->ds18b20_names, &blob_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading ds18b20_names!", esp_err_to_name(err));
+                free(settings->ds18b20_names);
+                settings->ds18b20_names = NULL;
+                settings->ds18b20_names_count = 0;
+                return err;
+            }
+            ESP_LOGI(TAG, "Read 'ds18b20_names' - %zu names", settings->ds18b20_names_count);
+            for (size_t i = 0; i < settings->ds18b20_names_count; i++) {
+                ESP_LOGI(TAG, "  Name[%zu]: address=%016llX, name='%s'",
+                         i,
+                         settings->ds18b20_names[i].address,
+                         settings->ds18b20_names[i].name);
+            }
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->ds18b20_names = NULL;
+            settings->ds18b20_names_count = 0;
+            ESP_LOGI(TAG, "No value for 'ds18b20_names'; using empty list");
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading ds18b20_names!", esp_err_to_name(err));
+            return err;
+    }
+
     nvs_close(settings_handle);
     return ESP_OK;
 }
@@ -1448,5 +1706,19 @@ esp_err_t settings_register(settings_t *settings, httpd_handle_t http_server) {
         return err;
     }
     return ESP_OK;
+}
+
+const char* settings_get_ds18b20_name(settings_t *settings, uint64_t address) {
+    if (settings == NULL || settings->ds18b20_names == NULL) {
+        return NULL;
+    }
+    
+    for (size_t i = 0; i < settings->ds18b20_names_count; i++) {
+        if (settings->ds18b20_names[i].address == address) {
+            return settings->ds18b20_names[i].name;
+        }
+    }
+    
+    return NULL;
 }
 

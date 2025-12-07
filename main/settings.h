@@ -14,6 +14,12 @@ typedef struct {
     bool enabled;            // Whether this filter is active
 } mac_filter_t;
 
+// Structure to hold DS18B20 device name configuration
+typedef struct {
+    uint64_t address;        // DS18B20 64-bit address
+    char name[32];           // Human-readable name for the device
+} ds18b20_name_t;
+
 typedef struct {
     char *update_url;
     char *password;
@@ -29,6 +35,8 @@ typedef struct {
     size_t selected_bthome_object_ids_count;
     mac_filter_t *mac_filters;         // Array of MAC address filters
     size_t mac_filters_count;          // Number of MAC address filters
+    ds18b20_name_t *ds18b20_names;     // Array of DS18B20 device names
+    size_t ds18b20_names_count;        // Number of DS18B20 device names
     int8_t ds18b20_gpio;               // DS18B20 temperature sensor GPIO pin (-1 = disabled)
     int8_t weight_dout_gpio;           // HX711 DOUT GPIO pin (-1 = disabled)
     int8_t weight_sck_gpio;            // HX711 SCK GPIO pin (-1 = disabled)
@@ -37,5 +45,7 @@ typedef struct {
 esp_err_t settings_init(settings_t *settings);
 
 esp_err_t settings_register(settings_t *settings, httpd_handle_t http_server);
+
+const char* settings_get_ds18b20_name(settings_t *settings, uint64_t address);
 
 #endif // SETTINGS_H

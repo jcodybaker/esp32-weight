@@ -28,6 +28,7 @@ typedef struct {
 
 static ds18b20_device_t ds18b20s[EXAMPLE_ONEWIRE_MAX_DS18B20];
 static onewire_bus_handle_t bus = NULL;
+static settings_t *device_settings = NULL;
 
 void run_ds18b20(void *pvParameters) {
     // settings_t *settings = (settings_t *) pvParameters;
@@ -36,11 +37,21 @@ void run_ds18b20(void *pvParameters) {
         esp_err_t trigger_err = ds18b20_trigger_temperature_conversion_for_all(bus);
         for (int i = 0; i < ds18b20_device_num; i ++) {
             if (trigger_err || ds18b20_get_temperature(ds18b20s[i].dev, &temperature) != ESP_OK) {
-                ESP_LOGE(TAG, "Failed to read temperature from DS18B20[%d]", i);
+                const char *name = device_settings ? settings_get_ds18b20_name(device_settings, ds18b20s[i].address) : NULL;
+                if (name && strlen(name) > 0) {
+                    ESP_LOGE(TAG, "Failed to read temperature from DS18B20 '%s' [%016llX]", name, ds18b20s[i].address);
+                } else {
+                    ESP_LOGE(TAG, "Failed to read temperature from DS18B20[%d] [%016llX]", i, ds18b20s[i].address);
+                }
                 sensors_update(ds18b20s[i].sensor_id, 0.0f, false);
                 continue;
             }
-            ESP_LOGI(TAG, "temperature read from DS18B20[%d]: %.2fC", i, temperature);
+            const char *name = device_settings ? settings_get_ds18b20_name(device_settings, ds18b20s[i].address) : NULL;
+            if (name && strlen(name) > 0) {
+                ESP_LOGI(TAG, "temperature read from DS18B20 '%s' [%016llX]: %.2fC", name, ds18b20s[i].address, temperature);
+            } else {
+                ESP_LOGI(TAG, "temperature read from DS18B20[%d] [%016llX]: %.2fC", i, ds18b20s[i].address, temperature);
+            }
             sensors_update(ds18b20s[i].sensor_id, temperature, true);
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -52,6 +63,10 @@ void init_ds18b20(settings_t *settings) {
         ESP_LOGW(TAG, "DS18B20 GPIO not configured, skipping DS18B20 initialization");
         return;
     }
+    
+    // Store settings pointer for later use
+    device_settings = settings;
+    
     // install 1-wire bus
     onewire_bus_handle_t bus = NULL;
     onewire_bus_config_t bus_config = {
@@ -83,7 +98,14 @@ void init_ds18b20(settings_t *settings) {
                 ds18b20_get_device_address(ds18b20s[ds18b20_device_num].dev, &address);
                 ds18b20s[ds18b20_device_num].address = address;
                 ds18b20s[ds18b20_device_num].sensor_id = sensors_register("Temperature", "C");
-                ESP_LOGI(TAG, "Found a DS18B20[%d], address: %016llX", ds18b20_device_num, address);
+                
+                const char *name = settings_get_ds18b20_name(settings, address);
+                if (name && strlen(name) > 0) {
+                    ESP_LOGI(TAG, "Found a DS18B20[%d] '%s', address: %016llX", ds18b20_device_num, name, address);
+                } else {
+                    ESP_LOGI(TAG, "Found a DS18B20[%d], address: %016llX", ds18b20_device_num, address);
+                }
+                
                 ds18b20_device_num++;
                 if (ds18b20_device_num >= EXAMPLE_ONEWIRE_MAX_DS18B20) {
                     ESP_LOGI(TAG, "Max DS18B20 number reached, stop searching...");
