@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#define EXAMPLE_ONEWIRE_MAX_DS18B20 5
+
 typedef struct {
     uint64_t address;
     int sensor_id;
