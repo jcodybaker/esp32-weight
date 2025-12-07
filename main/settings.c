@@ -194,6 +194,27 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         settings->weight_gain == HX711_GAIN_B_32 ? " selected" : "");
     httpd_resp_sendstr_chunk(req, buffer);
     
+    // Send ds18b20_gpio with current value
+    snprintf(buffer, 1024,
+        "<label for='ds18b20_gpio'>DS18B20 Temperature Sensor GPIO Pin (-1 = disabled):</label>\n"
+        "<input type='number' id='ds18b20_gpio' name='ds18b20_gpio' value='%d' min='-1' max='39'>\n",
+        settings->ds18b20_gpio);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send weight_dout_gpio with current value
+    snprintf(buffer, 1024,
+        "<label for='weight_dout_gpio'>Weight (HX711) DOUT GPIO Pin (-1 = disabled, suggested: 32):</label>\n"
+        "<input type='number' id='weight_dout_gpio' name='weight_dout_gpio' value='%d' min='-1' max='39'>\n",
+        settings->weight_dout_gpio);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send weight_sck_gpio with current value
+    snprintf(buffer, 1024,
+        "<label for='weight_sck_gpio'>Weight (HX711) SCK GPIO Pin (-1 = disabled, suggested: 26):</label>\n"
+        "<input type='number' id='weight_sck_gpio' name='weight_sck_gpio' value='%d' min='-1' max='39'>\n",
+        settings->weight_sck_gpio);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
     // Send wifi_ssid with current value
     char *encoded_wifi_ssid = url_encode(settings->wifi_ssid);
     snprintf(buffer, 1024,
@@ -562,6 +583,63 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
                 ESP_LOGI(TAG, "Updated weight_gain to %d", weight_gain);
             } else {
                 ESP_LOGE(TAG, "Failed to write weight_gain to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+    
+    // Check and update ds18b20_gpio
+    if (httpd_query_key_value(query_buf, "ds18b20_gpio", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t ds18b20_gpio = (int8_t)atoi(param_buf);
+        if (ds18b20_gpio == settings->ds18b20_gpio) {
+            ESP_LOGI(TAG, "DS18B20 GPIO unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "ds18b20_gpio", ds18b20_gpio);
+            if (err == ESP_OK) {
+                settings->ds18b20_gpio = ds18b20_gpio;
+                updated = true;
+                ESP_LOGI(TAG, "Updated ds18b20_gpio to %d", ds18b20_gpio);
+            } else {
+                ESP_LOGE(TAG, "Failed to write ds18b20_gpio to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+    
+    // Check and update weight_dout_gpio
+    if (httpd_query_key_value(query_buf, "weight_dout_gpio", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t weight_dout_gpio = (int8_t)atoi(param_buf);
+        if (weight_dout_gpio == settings->weight_dout_gpio) {
+            ESP_LOGI(TAG, "Weight DOUT GPIO unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "weight_dout_gpio", weight_dout_gpio);
+            if (err == ESP_OK) {
+                settings->weight_dout_gpio = weight_dout_gpio;
+                updated = true;
+                ESP_LOGI(TAG, "Updated weight_dout_gpio to %d", weight_dout_gpio);
+            } else {
+                ESP_LOGE(TAG, "Failed to write weight_dout_gpio to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+    
+    // Check and update weight_sck_gpio
+    if (httpd_query_key_value(query_buf, "weight_sck_gpio", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t weight_sck_gpio = (int8_t)atoi(param_buf);
+        if (weight_sck_gpio == settings->weight_sck_gpio) {
+            ESP_LOGI(TAG, "Weight SCK GPIO unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "weight_sck_gpio", weight_sck_gpio);
+            if (err == ESP_OK) {
+                settings->weight_sck_gpio = weight_sck_gpio;
+                updated = true;
+                ESP_LOGI(TAG, "Updated weight_sck_gpio to %d", weight_sck_gpio);
+            } else {
+                ESP_LOGE(TAG, "Failed to write weight_sck_gpio to NVS: %s", esp_err_to_name(err));
             }
         }
     }
@@ -977,6 +1055,9 @@ esp_err_t settings_init(settings_t *settings)
     settings->selected_bthome_object_ids_count = 0;
     settings->mac_filters = NULL;
     settings->mac_filters_count = 0;
+    settings->ds18b20_gpio = -1;
+    settings->weight_dout_gpio = -1;
+    settings->weight_sck_gpio = -1;
     // Open NVS handle
     ESP_LOGI(TAG, "\nOpening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -1243,6 +1324,57 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading bthome_obj_ids!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'ds18b20_gpio' from NVS...");
+    int8_t ds18b20_gpio_value;
+    err = nvs_get_i8(settings_handle, "ds18b20_gpio", &ds18b20_gpio_value);
+    switch (err) {
+        case ESP_OK:
+            settings->ds18b20_gpio = ds18b20_gpio_value;
+            ESP_LOGI(TAG, "Read 'ds18b20_gpio' = %d", settings->ds18b20_gpio);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->ds18b20_gpio = -1;  // Disabled by default
+            ESP_LOGI(TAG, "No value for 'ds18b20_gpio'; using default = %d (disabled)", settings->ds18b20_gpio);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading ds18b20_gpio!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'weight_dout_gpio' from NVS...");
+    int8_t weight_dout_gpio_value;
+    err = nvs_get_i8(settings_handle, "weight_dout_gpio", &weight_dout_gpio_value);
+    switch (err) {
+        case ESP_OK:
+            settings->weight_dout_gpio = weight_dout_gpio_value;
+            ESP_LOGI(TAG, "Read 'weight_dout_gpio' = %d", settings->weight_dout_gpio);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->weight_dout_gpio = -1;  // Disabled by default
+            ESP_LOGI(TAG, "No value for 'weight_dout_gpio'; using default = %d (disabled)", settings->weight_dout_gpio);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading weight_dout_gpio!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "\nReading 'weight_sck_gpio' from NVS...");
+    int8_t weight_sck_gpio_value;
+    err = nvs_get_i8(settings_handle, "weight_sck_gpio", &weight_sck_gpio_value);
+    switch (err) {
+        case ESP_OK:
+            settings->weight_sck_gpio = weight_sck_gpio_value;
+            ESP_LOGI(TAG, "Read 'weight_sck_gpio' = %d", settings->weight_sck_gpio);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->weight_sck_gpio = -1;  // Disabled by default
+            ESP_LOGI(TAG, "No value for 'weight_sck_gpio'; using default = %d (disabled)", settings->weight_sck_gpio);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading weight_sck_gpio!", esp_err_to_name(err));
             return err;
     }
 

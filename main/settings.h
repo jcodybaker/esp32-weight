@@ -29,6 +29,9 @@ typedef struct {
     size_t selected_bthome_object_ids_count;
     mac_filter_t *mac_filters;         // Array of MAC address filters
     size_t mac_filters_count;          // Number of MAC address filters
+    int8_t ds18b20_gpio;               // DS18B20 temperature sensor GPIO pin (-1 = disabled)
+    int8_t weight_dout_gpio;           // HX711 DOUT GPIO pin (-1 = disabled)
+    int8_t weight_sck_gpio;            // HX711 SCK GPIO pin (-1 = disabled)
 } settings_t;
 
 esp_err_t settings_init(settings_t *settings);
