@@ -1278,10 +1278,6 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "Failed to commit settings to NVS: %s", esp_err_to_name(err));
         }
-        if (restart_needed) {
-            ESP_LOGI(TAG, "Restarting to apply new WiFi settings...");
-            esp_restart();
-        }
     }
     
     nvs_close(settings_handle);
@@ -1289,7 +1285,17 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     
     if (updated) {
         httpd_resp_set_status(req, HTTPD_200);
+        if (restart_needed) {
+            httpd_resp_send(req, "Settings updated successfully. Restarting...", HTTPD_RESP_USE_STRLEN);
+        } else {
+            httpd_resp_send(req, "Settings updated successfully", HTTPD_RESP_USE_STRLEN);
+        }
         httpd_resp_send(req, "Settings updated successfully", HTTPD_RESP_USE_STRLEN);
+        if (restart_needed) {
+            ESP_LOGI(TAG, "Restarting system to apply changes...");
+            vTaskDelay(pdMS_TO_TICKS(250));
+            esp_restart();
+        }
     } else {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No valid parameters to update");
     }
