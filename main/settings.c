@@ -244,6 +244,15 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     httpd_resp_sendstr_chunk(req, buffer);
     free(encoded_timezone);
     
+    // Send temperature unit checkbox
+    snprintf(buffer, 1024,
+        "<hr class='minor'/>\n"
+        "<label for='temp_use_fahrenheit'>\n"
+        "<input type='checkbox' id='temp_use_fahrenheit' name='temp_use_fahrenheit' value='1'%s> Display Temperatures in Fahrenheit (°F)\n"
+        "</label>\n",
+        settings->temp_use_fahrenheit ? " checked" : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    
     // Send BTHome object IDs multi-select
     httpd_resp_sendstr_chunk(req,
         "<hr class='minor'/>\n"
@@ -844,6 +853,24 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         }
     } else {
         ESP_LOGI(TAG, "WiFi AP fallback disable unchanged");
+    }
+
+    // Check and update temp_use_fahrenheit
+    bool temp_use_fahrenheit = false;
+    if (httpd_query_key_value(query_buf, "temp_use_fahrenheit", param_buf, sizeof(param_buf)) == ESP_OK) {
+        temp_use_fahrenheit = true;
+    }
+    if (temp_use_fahrenheit != settings->temp_use_fahrenheit) {
+        err = nvs_set_u8(settings_handle, "temp_use_f", temp_use_fahrenheit ? 1 : 0);
+        if (err == ESP_OK) {
+            settings->temp_use_fahrenheit = temp_use_fahrenheit;
+            updated = true;
+            ESP_LOGI(TAG, "Updated temp_use_fahrenheit to %d", temp_use_fahrenheit);
+        } else {
+            ESP_LOGE(TAG, "Failed to write temp_use_fahrenheit to NVS: %s", esp_err_to_name(err));
+        }
+    } else {
+        ESP_LOGI(TAG, "Temperature unit setting unchanged");
     }
 
     // Check and update hostname
@@ -1496,6 +1523,23 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading wifi_ap_fallback_disable!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'temp_use_fahrenheit' from NVS...");
+    uint8_t temp_use_f_value;
+    err = nvs_get_u8(settings_handle, "temp_use_f", &temp_use_f_value);
+    switch (err) {
+        case ESP_OK:
+            settings->temp_use_fahrenheit = temp_use_f_value != 0;
+            ESP_LOGI(TAG, "Read 'temp_use_fahrenheit' = %d", settings->temp_use_fahrenheit);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->temp_use_fahrenheit = false;  // Default to Celsius
+            ESP_LOGI(TAG, "No value for 'temp_use_fahrenheit'; using default = %d (Celsius)", settings->temp_use_fahrenheit);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading temp_use_fahrenheit!", esp_err_to_name(err));
             return err;
     }
 

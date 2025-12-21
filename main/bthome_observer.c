@@ -369,6 +369,16 @@ static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id)
     const char *type_name = bthome_get_object_name(object_id);
     const char *unit = bthome_get_object_unit(object_id);
     
+    // For temperature sensors, use the configured unit
+    bool is_temperature = (object_id == BTHOME_SENSOR_TEMPERATURE ||
+                          object_id == BTHOME_SENSOR_TEMPERATURE_SINT16_1 ||
+                          object_id == BTHOME_SENSOR_TEMPERATURE_SINT8 ||
+                          object_id == BTHOME_SENSOR_TEMPERATURE_SINT8_035 ||
+                          object_id == BTHOME_SENSOR_DEWPOINT);
+    if (is_temperature && g_settings && g_settings->temp_use_fahrenheit) {
+        unit = "F";
+    }
+    
     // Create sensor name using configured device name from settings
     char sensor_name[SENSOR_NAME_MAX_LEN];
     sensor_name[0] = '\0';
@@ -448,6 +458,16 @@ static void bthome_packet_callback(esp_bd_addr_t addr, int rssi,
         float factor = bthome_get_scaling_factor(m->object_id);
         float value = bthome_get_scaled_value(m, factor);
         
+        // Convert temperature to Fahrenheit if configured
+        bool is_temperature = (m->object_id == BTHOME_SENSOR_TEMPERATURE ||
+                              m->object_id == BTHOME_SENSOR_TEMPERATURE_SINT16_1 ||
+                              m->object_id == BTHOME_SENSOR_TEMPERATURE_SINT8 ||
+                              m->object_id == BTHOME_SENSOR_TEMPERATURE_SINT8_035 ||
+                              m->object_id == BTHOME_SENSOR_DEWPOINT);
+        if (is_temperature && g_settings && g_settings->temp_use_fahrenheit) {
+            value = value * 9.0f / 5.0f + 32.0f;
+        }
+        
         // Find or register this sensor (only if MAC and object_id are enabled in settings)
         int sensor_id = find_or_register_bthome_sensor(addr, m->object_id);
         if (sensor_id >= 0) {
@@ -489,7 +509,12 @@ static void bthome_packet_callback(esp_bd_addr_t addr, int rssi,
         // Specific sensor type examples
         switch (m->object_id) {
             case BTHOME_SENSOR_TEMPERATURE:
-                ESP_LOGI(TAG, "    Temperature: %.2f °C", value);
+                if (g_settings && g_settings->temp_use_fahrenheit) {
+                    float temp_f = value * 9.0f / 5.0f + 32.0f;
+                    ESP_LOGI(TAG, "    Temperature: %.2f °F", temp_f);
+                } else {
+                    ESP_LOGI(TAG, "    Temperature: %.2f °C", value);
+                }
                 break;
             case BTHOME_SENSOR_HUMIDITY:
                 ESP_LOGI(TAG, "    Humidity: %.2f %%", value);

@@ -41,6 +41,7 @@ typedef struct {
     int8_t ds18b20_pwr_gpio;     // DS18B20 power GPIO pin (-1 = disabled)
     int8_t weight_dout_gpio;           // HX711 DOUT GPIO pin (-1 = disabled)
     int8_t weight_sck_gpio;            // HX711 SCK GPIO pin (-1 = disabled)
+    bool temp_use_fahrenheit;          // Display temperatures in Fahrenheit (true) or Celsius (false)
 } settings_t;
 
 esp_err_t settings_init(settings_t *settings);
