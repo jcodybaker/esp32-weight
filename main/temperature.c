@@ -13,8 +13,8 @@
 #include "settings.h"
 #include "sensors.h"
 #include "temperature.h"
+#include "driver/gpio.h"
 
-#define EXAMPLE_ONEWIRE_BUS_GPIO    18
 #define EXAMPLE_ONEWIRE_MAX_DS18B20 5
 
 static const char *TAG = "ds18b20";
@@ -63,12 +63,26 @@ void init_ds18b20(settings_t *settings) {
         ESP_LOGW(TAG, "DS18B20 GPIO not configured, skipping DS18B20 initialization");
         return;
     }
+    if (settings->ds18b20_pwr_gpio >= 0) {
+        // Configure DS18B20 power GPIO and set it high
+        gpio_config_t io_conf = {
+            .pin_bit_mask = (1ULL << settings->ds18b20_pwr_gpio),
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE
+        };
+        gpio_config(&io_conf);
+        gpio_set_level(settings->ds18b20_pwr_gpio, 1);
+        ESP_LOGI(TAG, "DS18B20 power GPIO %d set to HIGH", settings->ds18b20_pwr_gpio);
+        // Wait a moment for the sensors to power up
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
     
     // Store settings pointer for later use
     device_settings = settings;
     
     // install 1-wire bus
-    onewire_bus_handle_t bus = NULL;
     onewire_bus_config_t bus_config = {
         .bus_gpio_num = settings->ds18b20_gpio,
         .flags = {
@@ -78,8 +92,9 @@ void init_ds18b20(settings_t *settings) {
     onewire_bus_rmt_config_t rmt_config = {
         .max_rx_bytes = 10, // 1byte ROM command + 8byte ROM number + 1byte device command
     };
+    ESP_LOGI(TAG, "Initializing 1-Wire bus on GPIO%d", settings->ds18b20_gpio);
     ESP_ERROR_CHECK(onewire_new_bus_rmt(&bus_config, &rmt_config, &bus));
-    ESP_LOGI(TAG, "1-Wire bus installed on GPIO%d", EXAMPLE_ONEWIRE_BUS_GPIO);
+    ESP_LOGI(TAG, "1-Wire bus installed on GPIO%d", settings->ds18b20_gpio);
 
     onewire_device_iter_handle_t iter = NULL;
     onewire_device_t next_onewire_device;
@@ -91,6 +106,7 @@ void init_ds18b20(settings_t *settings) {
     do {
         search_result = onewire_device_iter_get_next(iter, &next_onewire_device);
         if (search_result == ESP_OK) { // found a new device, let's check if we can upgrade it to a DS18B20
+            ESP_LOGI(TAG, "Found a device, address: %016llX", next_onewire_device.address);
             ds18b20_config_t ds_cfg = {};
             onewire_device_address_t address;
             // check if the device is a DS18B20, if so, return the ds18b20 handle
@@ -116,8 +132,12 @@ void init_ds18b20(settings_t *settings) {
                 ESP_LOGI(TAG, "Found an unknown device, address: %016llX", next_onewire_device.address);
             }
         }
-    } while (search_result != ESP_ERR_NOT_FOUND);
+    } while (search_result == ESP_OK);
     ESP_ERROR_CHECK(onewire_del_device_iter(iter));
+    if (ds18b20_device_num == 0) {
+        ESP_LOGW(TAG, "No DS18B20 device found on the bus");
+        return;
+    }
     ESP_LOGI(TAG, "Searching done, %d DS18B20 device(s) found", ds18b20_device_num);
     
     // Start the weight reading task

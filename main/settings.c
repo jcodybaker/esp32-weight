@@ -185,6 +185,13 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         settings->ds18b20_gpio);
     httpd_resp_sendstr_chunk(req, buffer);
     
+    // Send ds18b20_pwr_gpio with current value
+    snprintf(buffer, 1024,
+        "<label for='ds18b20_pwr_gpio'>DS18B20 Power GPIO Pin (-1 = disabled):</label>\n"
+        "<input type='number' id='ds18b20_pwr_gpio' name='ds18b20_pwr_gpio' value='%d' min='-1' max='39'>\n",
+        settings->ds18b20_pwr_gpio);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
     // Send weight_dout_gpio with current value
     snprintf(buffer, 1024,
         "<label for='weight_dout_gpio'>Weight (HX711) DOUT GPIO Pin (-1 = disabled, suggested: 32):</label>\n"
@@ -493,7 +500,13 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "      params.append(pair[0], pair[1]);\n"
         "    }\n"
         "  }\n"
-        "  fetch('/settings?' + params.toString(), { method: 'POST' })\n"
+        "  fetch('/settings', {\n"
+        "    method: 'POST',\n"
+        "    headers: {\n"
+        "      'Content-Type': 'application/x-www-form-urlencoded'\n"
+        "    },\n"
+        "    body: params.toString()\n"
+        "  })\n"
         "    .then(response => {\n"
         "      var msg = document.getElementById('message');\n"
         "      if (response.ok) {\n"
@@ -531,25 +544,49 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     bool updated = false;
     bool restart_needed = false;
     
-    // Get the query string length
-    size_t query_len = httpd_req_get_url_query_len(req);
-    if (query_len == 0) {
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No query parameters provided");
-        return ESP_FAIL;
-    }
+    char *query_buf = NULL;
     
-    // Allocate buffer for query string
-    char *query_buf = malloc(query_len + 1);
-    if (query_buf == NULL) {
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
-        return ESP_ERR_NO_MEM;
-    }
-    
-    // Get the query string
-    if (httpd_req_get_url_query_str(req, query_buf, query_len + 1) != ESP_OK) {
-        free(query_buf);
-        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to parse query string");
-        return ESP_FAIL;
+    // Try to get data from POST body first
+    size_t content_len = req->content_len;
+    if (content_len > 0) {
+        // Allocate buffer for POST data
+        query_buf = malloc(content_len + 1);
+        if (query_buf == NULL) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+        
+        // Read the POST data from request body
+        int ret = httpd_req_recv(req, query_buf, content_len);
+        if (ret <= 0) {
+            free(query_buf);
+            if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+                httpd_resp_send_err(req, HTTPD_408_REQ_TIMEOUT, "Request timeout");
+            } else {
+                httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to read POST data");
+            }
+            return ESP_FAIL;
+        }
+        query_buf[ret] = '\0';
+    } else {
+        // Fall back to query parameters (for backward compatibility with tare button)
+        size_t query_len = httpd_req_get_url_query_len(req);
+        if (query_len == 0) {
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "No POST data or query parameters provided");
+            return ESP_FAIL;
+        }
+        
+        query_buf = malloc(query_len + 1);
+        if (query_buf == NULL) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Memory allocation failed");
+            return ESP_ERR_NO_MEM;
+        }
+        
+        if (httpd_req_get_url_query_str(req, query_buf, query_len + 1) != ESP_OK) {
+            free(query_buf);
+            httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to parse query string");
+            return ESP_FAIL;
+        }
     }
     
     // Open NVS handle
@@ -683,6 +720,27 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write ds18b20_gpio to NVS: %s", esp_err_to_name(err));
             }
+            restart_needed = true;
+        }
+    }
+    
+    // Check and update ds18b20_pwr_gpio
+    if (httpd_query_key_value(query_buf, "ds18b20_pwr_gpio", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t ds18b20_pwr_gpio = (int8_t)atoi(param_buf);
+        if (ds18b20_pwr_gpio == settings->ds18b20_pwr_gpio) {
+            ESP_LOGI(TAG, "DS18B20 Power GPIO unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "ds18b20_pwr", ds18b20_pwr_gpio);
+            if (err == ESP_OK) {
+                settings->ds18b20_pwr_gpio = ds18b20_pwr_gpio;
+                updated = true;
+                ESP_LOGI(TAG, "Updated ds18b20_pwr_gpio to %d", ds18b20_pwr_gpio);
+            } else {
+                ESP_LOGE(TAG, "Failed to write ds18b20_pwr_gpio to NVS: %s", esp_err_to_name(err));
+            }
+            restart_needed = true;
         }
     }
     
@@ -702,6 +760,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write weight_dout_gpio to NVS: %s", esp_err_to_name(err));
             }
+            restart_needed = true;
         }
     }
     
@@ -721,6 +780,7 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write weight_sck_gpio to NVS: %s", esp_err_to_name(err));
             }
+            restart_needed = true;
         }
     }
 
@@ -1256,10 +1316,11 @@ esp_err_t settings_init(settings_t *settings)
     settings->mac_filters = NULL;
     settings->mac_filters_count = 0;
     settings->ds18b20_gpio = -1;
+    settings->ds18b20_pwr_gpio = -1;
     settings->weight_dout_gpio = -1;
     settings->weight_sck_gpio = -1;
     // Open NVS handle
-    ESP_LOGI(TAG, "\nOpening Non-Volatile Storage (NVS) handle...");
+    ESP_LOGI(TAG, "Opening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
     esp_err_t err = nvs_open("settings", NVS_READWRITE, &settings_handle);
     if (err != ESP_OK) {
@@ -1267,7 +1328,7 @@ esp_err_t settings_init(settings_t *settings)
         return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'update_url' from NVS...");
+    ESP_LOGI(TAG, "Reading 'update_url' from NVS...");
     size_t str_size = 0;
     err = nvs_get_str(settings_handle, "update_url", NULL, &str_size);
     switch (err) {
@@ -1293,7 +1354,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'password' from NVS...");
+    ESP_LOGI(TAG, "Reading 'password' from NVS...");
     err = nvs_get_str(settings_handle, "password", NULL, &str_size);
     switch (err) {
         case ESP_OK:
@@ -1318,7 +1379,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'weight_tare' from NVS...");
+    ESP_LOGI(TAG, "Reading 'weight_tare' from NVS...");
     err = nvs_get_i32(settings_handle, "weight_tare", &settings->weight_tare);
     switch (err) {
         case ESP_OK:
@@ -1333,7 +1394,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
     
-    ESP_LOGI(TAG, "\nReading 'weight_scale' from NVS...");
+    ESP_LOGI(TAG, "Reading 'weight_scale' from NVS...");
     int32_t weight_scale_raw;
     err = nvs_get_i32(settings_handle, "weight_scale", &weight_scale_raw);
     switch (err) {
@@ -1350,7 +1411,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'weight_gain' from NVS...");
+    ESP_LOGI(TAG, "Reading 'weight_gain' from NVS...");
     int32_t weight_gain_value;
     err = nvs_get_i32(settings_handle, "weight_gain", &weight_gain_value);
     switch (err) {
@@ -1367,7 +1428,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'wifi_ssid' from NVS...");
+    ESP_LOGI(TAG, "Reading 'wifi_ssid' from NVS...");
     err = nvs_get_str(settings_handle, "wifi_ssid", NULL, &str_size);
     switch (err) {
         case ESP_OK:
@@ -1392,7 +1453,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'wifi_password' from NVS...");
+    ESP_LOGI(TAG, "Reading 'wifi_password' from NVS...");
     err = nvs_get_str(settings_handle, "wifi_password", NULL, &str_size);
     switch (err) {
         case ESP_OK:
@@ -1417,7 +1478,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'wifi_ap_fallback_disable' from NVS...");
+    ESP_LOGI(TAG, "Reading 'wifi_ap_fallback_disable' from NVS...");
     uint8_t wifi_ap_fb_dis_value;
     err = nvs_get_u8(settings_handle, "wifi_ap_fb_dis", &wifi_ap_fb_dis_value);
     switch (err) {
@@ -1438,7 +1499,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'hostname' from NVS...");
+    ESP_LOGI(TAG, "Reading 'hostname' from NVS...");
     err = nvs_get_str(settings_handle, "hostname", NULL, &str_size);
     switch (err) {
         case ESP_OK:
@@ -1463,7 +1524,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'timezone' from NVS...");
+    ESP_LOGI(TAG, "Reading 'timezone' from NVS...");
     err = nvs_get_str(settings_handle, "timezone", NULL, &str_size);
     switch (err) {
         case ESP_OK:
@@ -1494,7 +1555,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'bthome_obj_ids' from NVS...");
+    ESP_LOGI(TAG, "Reading 'bthome_obj_ids' from NVS...");
     size_t blob_size = 0;
     err = nvs_get_blob(settings_handle, "bthome_obj_ids", NULL, &blob_size);
     switch (err) {
@@ -1527,7 +1588,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'ds18b20_gpio' from NVS...");
+    ESP_LOGI(TAG, "Reading 'ds18b20_gpio' from NVS...");
     int8_t ds18b20_gpio_value;
     err = nvs_get_i8(settings_handle, "ds18b20_gpio", &ds18b20_gpio_value);
     switch (err) {
@@ -1544,7 +1605,24 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'weight_dout_gpio' from NVS...");
+    ESP_LOGI(TAG, "Reading 'ds18b20_pwr_gpio' from NVS...");
+    int8_t ds18b20_power_gpio_value;
+    err = nvs_get_i8(settings_handle, "ds18b20_pwr", &ds18b20_power_gpio_value);
+    switch (err) {
+        case ESP_OK:
+            settings->ds18b20_pwr_gpio = ds18b20_power_gpio_value;
+            ESP_LOGI(TAG, "Read 'ds18b20_pwr_gpio' = %d", settings->ds18b20_pwr_gpio);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->ds18b20_pwr_gpio = -1;  // Disabled by default
+            ESP_LOGI(TAG, "No value for 'ds18b20_pwr_gpio'; using default = %d (disabled)", settings->ds18b20_pwr_gpio);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading ds18b20_pwr_gpio!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'weight_dout_gpio' from NVS...");
     int8_t weight_dout_gpio_value;
     err = nvs_get_i8(settings_handle, "weight_dout_gpio", &weight_dout_gpio_value);
     switch (err) {
@@ -1561,7 +1639,7 @@ esp_err_t settings_init(settings_t *settings)
             return err;
     }
 
-    ESP_LOGI(TAG, "\nReading 'weight_sck_gpio' from NVS...");
+    ESP_LOGI(TAG, "Reading 'weight_sck_gpio' from NVS...");
     int8_t weight_sck_gpio_value;
     err = nvs_get_i8(settings_handle, "weight_sck_gpio", &weight_sck_gpio_value);
     switch (err) {
