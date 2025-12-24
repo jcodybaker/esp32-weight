@@ -229,6 +229,13 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         settings->pump_i2c_addr);
     httpd_resp_sendstr_chunk(req, buffer);
     
+    // Send pump_dispense_ml with current value
+    snprintf(buffer, 1024,
+        "<label for='pump_dispense_ml'>Pump Dispense Amount (ml, 1-1000):</label>\n"
+        "<input type='number' id='pump_dispense_ml' name='pump_dispense_ml' value='%d' min='1' max='1000'>\n",
+        settings->pump_dispense_ml);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
     // Display pump error if set
     const char* pump_error = pump_get_last_error();
     if (pump_error != NULL) {
@@ -887,6 +894,27 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         }
     }
 
+    // Check and update pump_dispense_ml
+    if (httpd_query_key_value(query_buf, "pump_dispense_ml", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int16_t pump_dispense_ml = (int16_t)atoi(param_buf);
+        if (pump_dispense_ml < 1 || pump_dispense_ml > 1000) {
+            ESP_LOGW(TAG, "Invalid pump_dispense_ml value: %d, must be 1-1000", pump_dispense_ml);
+        } else if (pump_dispense_ml == settings->pump_dispense_ml) {
+            ESP_LOGI(TAG, "Pump dispense amount unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0 && pump_dispense_ml >= 1 && pump_dispense_ml <= 1000) {
+            err = nvs_set_i16(settings_handle, "pump_disp_ml", pump_dispense_ml);
+            if (err == ESP_OK) {
+                settings->pump_dispense_ml = pump_dispense_ml;
+                updated = true;
+                ESP_LOGI(TAG, "Updated pump_dispense_ml to %d", pump_dispense_ml);
+            } else {
+                ESP_LOGE(TAG, "Failed to write pump_dispense_ml to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+
     if (httpd_query_key_value(query_buf, "wifi_ssid", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);  // Decode URL encoding
         if (strcmp(decoded_param, settings->wifi_ssid) == 0) {
@@ -1450,6 +1478,7 @@ esp_err_t settings_init(settings_t *settings)
     settings->pump_scl_gpio = -1;
     settings->pump_sda_gpio = -1;
     settings->pump_i2c_addr = 0x37;
+    settings->pump_dispense_ml = 100;  // Default 100ml
     // Open NVS handle
     ESP_LOGI(TAG, "Opening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -1852,6 +1881,23 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading pump_i2c_addr!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'pump_dispense_ml' from NVS...");
+    int16_t pump_dispense_ml_value;
+    err = nvs_get_i16(settings_handle, "pump_disp_ml", &pump_dispense_ml_value);
+    switch (err) {
+        case ESP_OK:
+            settings->pump_dispense_ml = pump_dispense_ml_value;
+            ESP_LOGI(TAG, "Read 'pump_dispense_ml' = %d", settings->pump_dispense_ml);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->pump_dispense_ml = 100;  // Default 100ml
+            ESP_LOGI(TAG, "No value for 'pump_dispense_ml'; using default = %d", settings->pump_dispense_ml);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading pump_dispense_ml!", esp_err_to_name(err));
             return err;
     }
 

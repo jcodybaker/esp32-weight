@@ -162,4 +162,10 @@ menu "Weight Sensor Configuration"
         default "admin"
         help
             The client's password which used for basic authenticate.
+    
+    config PUMP_DEFAULT_DISPENSE_ML
+        int "Default pump dispense amount (ml)"
+        default 8
+        help
+            Default amount of liquid to dispense in milliliters when no amount is specified.
 endmenu
