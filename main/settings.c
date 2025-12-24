@@ -17,6 +17,7 @@
 #include "IQmathLib.h"
 #include "bthome.h"
 #include "temperature.h"
+#include "pump.h"
 
 static const char *TAG = "settings";
 
@@ -205,6 +206,38 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "<input type='number' id='weight_sck_gpio' name='weight_sck_gpio' value='%d' min='-1' max='39'>\n",
         settings->weight_sck_gpio);
     httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send pump_scl_gpio with current value
+    snprintf(buffer, 1024,
+        "<hr class='minor'/>\n"
+        "<label for='pump_scl_gpio'>Pump I2C SCL GPIO Pin (-1 = disabled):</label>\n"
+        "<input type='number' id='pump_scl_gpio' name='pump_scl_gpio' value='%d' min='-1' max='39'>\n",
+        settings->pump_scl_gpio);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send pump_sda_gpio with current value
+    snprintf(buffer, 1024,
+        "<label for='pump_sda_gpio'>Pump I2C SDA GPIO Pin (-1 = disabled):</label>\n"
+        "<input type='number' id='pump_sda_gpio' name='pump_sda_gpio' value='%d' min='-1' max='39'>\n",
+        settings->pump_sda_gpio);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Send pump_i2c_addr with current value
+    snprintf(buffer, 1024,
+        "<label for='pump_i2c_addr'>Pump I2C Device Address (hex):</label>\n"
+        "<input type='number' id='pump_i2c_addr' name='pump_i2c_addr' value='0x%02X' min='0' max='127'>\n",
+        settings->pump_i2c_addr);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
+    // Display pump error if set
+    const char* pump_error = pump_get_last_error();
+    if (pump_error != NULL) {
+        httpd_resp_sendstr_chunk(req,
+            "<div class='error' style='display: block; margin-top: 10px;'>\n"
+            "<strong>Pump Error:</strong> ");
+        httpd_resp_sendstr_chunk(req, pump_error);
+        httpd_resp_sendstr_chunk(req, "</div>\n");
+    }
     
     // Send wifi_ssid with current value
     char *encoded_wifi_ssid = url_encode(settings->wifi_ssid);
@@ -793,6 +826,67 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         }
     }
 
+    
+    // Check and update pump_scl_gpio
+    if (httpd_query_key_value(query_buf, "pump_scl_gpio", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t pump_scl_gpio = (int8_t)atoi(param_buf);
+        if (pump_scl_gpio == settings->pump_scl_gpio) {
+            ESP_LOGI(TAG, "Pump SCL GPIO unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "pump_scl_gpio", pump_scl_gpio);
+            if (err == ESP_OK) {
+                settings->pump_scl_gpio = pump_scl_gpio;
+                updated = true;
+                ESP_LOGI(TAG, "Updated pump_scl_gpio to %d", pump_scl_gpio);
+            } else {
+                ESP_LOGE(TAG, "Failed to write pump_scl_gpio to NVS: %s", esp_err_to_name(err));
+            }
+            restart_needed = true;
+        }
+    }
+    
+    // Check and update pump_sda_gpio
+    if (httpd_query_key_value(query_buf, "pump_sda_gpio", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t pump_sda_gpio = (int8_t)atoi(param_buf);
+        if (pump_sda_gpio == settings->pump_sda_gpio) {
+            ESP_LOGI(TAG, "Pump SDA GPIO unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "pump_sda_gpio", pump_sda_gpio);
+            if (err == ESP_OK) {
+                settings->pump_sda_gpio = pump_sda_gpio;
+                updated = true;
+                ESP_LOGI(TAG, "Updated pump_sda_gpio to %d", pump_sda_gpio);
+            } else {
+                ESP_LOGE(TAG, "Failed to write pump_sda_gpio to NVS: %s", esp_err_to_name(err));
+            }
+            restart_needed = true;
+        }
+    }
+
+        // Check and update pump_i2c_addr
+    if (httpd_query_key_value(query_buf, "pump_i2c_addr", param_buf, sizeof(param_buf)) == ESP_OK) {
+        int8_t pump_i2c_addr = (int8_t)atoi(param_buf);
+        if (pump_i2c_addr == settings->pump_i2c_addr) {
+            ESP_LOGI(TAG, "Pump I2C address unchanged");
+            param_buf[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(param_buf) > 0) {
+            err = nvs_set_i8(settings_handle, "pump_i2c_addr", pump_i2c_addr);
+            if (err == ESP_OK) {
+                settings->pump_i2c_addr = pump_i2c_addr;
+                updated = true;
+                ESP_LOGI(TAG, "Updated pump_i2c_addr to %d", pump_i2c_addr);
+            } else {
+                ESP_LOGE(TAG, "Failed to write pump_i2c_addr to NVS: %s", esp_err_to_name(err));
+            }
+            restart_needed = true;
+        }
+    }
+
     if (httpd_query_key_value(query_buf, "wifi_ssid", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);  // Decode URL encoding
         if (strcmp(decoded_param, settings->wifi_ssid) == 0) {
@@ -1353,6 +1447,9 @@ esp_err_t settings_init(settings_t *settings)
     settings->ds18b20_pwr_gpio = -1;
     settings->weight_dout_gpio = -1;
     settings->weight_sck_gpio = -1;
+    settings->pump_scl_gpio = -1;
+    settings->pump_sda_gpio = -1;
+    settings->pump_i2c_addr = 0x37;
     // Open NVS handle
     ESP_LOGI(TAG, "Opening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -1704,6 +1801,57 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading weight_sck_gpio!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'pump_scl_gpio' from NVS...");
+    int8_t pump_scl_gpio_value;
+    err = nvs_get_i8(settings_handle, "pump_scl_gpio", &pump_scl_gpio_value);
+    switch (err) {
+        case ESP_OK:
+            settings->pump_scl_gpio = pump_scl_gpio_value;
+            ESP_LOGI(TAG, "Read 'pump_scl_gpio' = %d", settings->pump_scl_gpio);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->pump_scl_gpio = -1;  // Disabled by default
+            ESP_LOGI(TAG, "No value for 'pump_scl_gpio'; using default = %d (disabled)", settings->pump_scl_gpio);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading pump_scl_gpio!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'pump_sda_gpio' from NVS...");
+    int8_t pump_sda_gpio_value;
+    err = nvs_get_i8(settings_handle, "pump_sda_gpio", &pump_sda_gpio_value);
+    switch (err) {
+        case ESP_OK:
+            settings->pump_sda_gpio = pump_sda_gpio_value;
+            ESP_LOGI(TAG, "Read 'pump_sda_gpio' = %d", settings->pump_sda_gpio);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->pump_sda_gpio = -1;  // Disabled by default
+            ESP_LOGI(TAG, "No value for 'pump_sda_gpio'; using default = %d (disabled)", settings->pump_sda_gpio);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading pump_sda_gpio!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'pump_i2c_addr' from NVS...");
+    int8_t pump_i2c_addr_value;
+    err = nvs_get_i8(settings_handle, "pump_i2c_addr", &pump_i2c_addr_value);
+    switch (err) {
+        case ESP_OK:
+            settings->pump_i2c_addr = pump_i2c_addr_value;
+            ESP_LOGI(TAG, "Read 'pump_i2c_addr' = 0x%02X", settings->pump_i2c_addr);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->pump_i2c_addr = 0x37;  // Default I2C address
+            ESP_LOGI(TAG, "No value for 'pump_i2c_addr'; using default = 0x%02X", settings->pump_i2c_addr);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading pump_i2c_addr!", esp_err_to_name(err));
             return err;
     }
 

@@ -18,6 +18,8 @@
 #include "bthome_observer.h"
 #include "weight.h"
 #include "temperature.h"
+#include "driver/i2c_master.h"
+#include "pump.h"
 
 bool g_ntp_initialized = false;
 
@@ -46,4 +48,5 @@ void app_main(void)
     ota_init(settings, http_server);
     metrics_init(settings, http_server);
     bthome_observer_init(settings, http_server);
+    pump_init(settings, http_server);
 }
