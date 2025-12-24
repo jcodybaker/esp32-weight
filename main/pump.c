@@ -9,6 +9,7 @@
 #define PUMP_PROCESSING_DELAY 300 // milliseconds
 #define PUMP_MAX_ATTEMPTS 2
 #define PUMP_ERROR_BUFFER_SIZE 128
+#define PUMP_MAX_LOCK_WAIT_MS 10000 // milliseconds
 
 static const char *TAG = "pump";
 static char error_buffer[PUMP_ERROR_BUFFER_SIZE];
@@ -30,6 +31,7 @@ typedef struct {
     char buf[PUMP_BUFFER_SIZE];
     i2c_master_bus_handle_t bus_handle;
     i2c_master_dev_handle_t dev_handle;
+    SemaphoreHandle_t xSemaphore;
 } pump_context_t;
 
 
@@ -158,9 +160,14 @@ void pump_init(settings_t *settings, httpd_handle_t server) {
         return;
     }
     ESP_LOGI(TAG, "Pump initialized successfully, firmware version: %s", response);
+    
+    pump_ctx->xSemaphore = xSemaphoreCreateMutex();
+    if (pump_ctx->xSemaphore == NULL) {
+        PUMP_ERROR_RETURN("Failed to create semaphore for pump");
+        return;
+    }
 
     pump_dispense_uri.user_ctx = pump_ctx;
-    
     // Register HTTP handler
     esp_err_t err_http = httpd_register_uri_handler_with_basic_auth(settings, server, &pump_dispense_uri);
     if (err_http != ESP_OK) {
@@ -168,14 +175,17 @@ void pump_init(settings_t *settings, httpd_handle_t server) {
     } else {
         ESP_LOGI(TAG, "Registered pump dispense HTTP handler at /pump/dispense");
     }
-    
     return;
 }
 
 char* pump_send_cmd(pump_context_t *pump_ctx, const char *cmd) {
+    if(!xSemaphoreTake(pump_ctx->xSemaphore, pdMS_TO_TICKS(PUMP_MAX_LOCK_WAIT_MS))) {
+        return NULL;
+    }
     esp_err_t err = i2c_master_transmit(pump_ctx->dev_handle, (uint8_t*)cmd, strlen(cmd), -1);
     if (err != ESP_OK) {
         PUMP_ERROR_RETURN("Failed to send `%s` command to pump: %s", cmd, esp_err_to_name(err));
+        xSemaphoreGive(pump_ctx->xSemaphore);
         return NULL;
     }
 
@@ -191,23 +201,29 @@ char* pump_send_cmd(pump_context_t *pump_ctx, const char *cmd) {
                 break;
             default:
                 PUMP_ERROR_RETURN("Error receiving pump response: %s", esp_err_to_name(err));
+                xSemaphoreGive(pump_ctx->xSemaphore);
                 return NULL;
         }
         switch (pump_ctx->buf[0]) {
             case 1:
+                xSemaphoreGive(pump_ctx->xSemaphore);
                 return pump_ctx->buf+1;
             case 2:
+                xSemaphoreGive(pump_ctx->xSemaphore);
                 return NULL; // syntax error
             case 254:
                 continue; // still processing; try again
             case 255:
+                xSemaphoreGive(pump_ctx->xSemaphore);
                 return ""; // no data
             default:
                 PUMP_ERROR_RETURN("Pump returned unknown response code: %d", pump_ctx->buf[0]);
+                xSemaphoreGive(pump_ctx->xSemaphore);
                 return NULL;
         }
     }
     // No response after max attempts
     PUMP_ERROR_RETURN("No response from pump after %d attempts", PUMP_MAX_ATTEMPTS);
+    xSemaphoreGive(pump_ctx->xSemaphore);
     return NULL;
 }
