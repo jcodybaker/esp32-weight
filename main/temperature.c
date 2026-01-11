@@ -22,7 +22,8 @@ static int ds18b20_device_num = 0;
 
 typedef struct {
     ds18b20_device_handle_t dev;
-    int sensor_id;
+    int sensor_id_c;
+    int sensor_id_f;
     uint64_t address;
     float last_temperature_c;
     time_t last_updated;
@@ -45,7 +46,7 @@ void run_ds18b20(void *pvParameters) {
                 } else {
                     ESP_LOGE(TAG, "Failed to read temperature from DS18B20[%d] [%016llX]", i, ds18b20s[i].address);
                 }
-                sensors_update(ds18b20s[i].sensor_id, 0.0f, false);
+                sensors_update(ds18b20s[i].sensor_id_c, 0.0f, false);
                 continue;
             }
             
@@ -56,9 +57,10 @@ void run_ds18b20(void *pvParameters) {
             // Convert to Fahrenheit if configured
             float display_temp = temperature;
             const char *unit = "C";
-            if (device_settings && device_settings->temp_use_fahrenheit) {
+            if (ds18b20s[i].sensor_id_f >= 0) {
                 display_temp = temperature * 9.0f / 5.0f + 32.0f;
                 unit = "F";
+                sensors_update(ds18b20s[i].sensor_id_f, display_temp, true);
             }
             
             const char *name = device_settings ? settings_get_ds18b20_name(device_settings, ds18b20s[i].address) : NULL;
@@ -67,7 +69,6 @@ void run_ds18b20(void *pvParameters) {
             } else {
                 ESP_LOGI(TAG, "temperature read from DS18B20[%d] [%016llX]: %.2f%s", i, ds18b20s[i].address, display_temp, unit);
             }
-            sensors_update(ds18b20s[i].sensor_id, display_temp, true);
         }
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
@@ -128,28 +129,24 @@ void init_ds18b20(settings_t *settings) {
             if (ds18b20_new_device_from_enumeration(&next_onewire_device, &ds_cfg, &ds18b20s[ds18b20_device_num].dev) == ESP_OK) {
                 ds18b20_get_device_address(ds18b20s[ds18b20_device_num].dev, &address);
                 ds18b20s[ds18b20_device_num].address = address;
-                const char *unit = settings->temp_use_fahrenheit ? "F" : "C";
-                
-                // Build metric name with device address
-                char metric_name[64];
+                const char *unit = settings->temp_use_fahrenheit ? "F" : "C";                
                 const char *device_name = settings_get_ds18b20_name(settings, address);
-                if (device_name && strlen(device_name) > 0) {
-                    // Use device name for metric if available
-                    snprintf(metric_name, sizeof(metric_name), "ds18b20_temperature_%s", device_name);
-                    // Convert to lowercase and replace spaces with underscores
-                    for (char *p = metric_name; *p; p++) {
-                        if (*p == ' ' || *p == '-') {
-                            *p = '_';
-                        } else if (*p >= 'A' && *p <= 'Z') {
-                            *p = *p + ('a' - 'A');
-                        }
-                    }
-                } else {
-                    // Use address for metric if no name configured
-                    snprintf(metric_name, sizeof(metric_name), "ds18b20_temperature_%016llx", address);
-                }
+                char addr_str[13];
+                snprintf(addr_str, sizeof(addr_str), "%02X%02X%02X%02X%02X%02X",
+                         (uint8_t)(address >> 40), (uint8_t)(address >> 32), (uint8_t)(address >> 24),
+                         (uint8_t)(address >> 16), (uint8_t)(address >> 8), (uint8_t)(address >> 0));
                 
-                ds18b20s[ds18b20_device_num].sensor_id = sensors_register("Temperature", unit, metric_name);
+                if (settings->temp_use_fahrenheit) {
+                    ds18b20s[ds18b20_device_num].sensor_id_f = sensors_register(
+                        "Temperature", unit, NULL, NULL, NULL);
+                    ds18b20s[ds18b20_device_num].sensor_id_c = sensors_register(
+                        NULL, NULL, "temperature", device_name ? device_name : addr_str, addr_str);
+                } else {
+                    ds18b20s[ds18b20_device_num].sensor_id_c = sensors_register(
+                        "Temperature", unit, "temperature", device_name ? device_name : addr_str, addr_str);
+                    ds18b20s[ds18b20_device_num].sensor_id_f = -1;
+                }
+
                 
                 if (device_name && strlen(device_name) > 0) {
                     ESP_LOGI(TAG, "Found a DS18B20[%d] '%s', address: %016llX", ds18b20_device_num, device_name, address);
@@ -183,7 +180,6 @@ int get_ds18b20_devices(ds18b20_info_t *devices, int max_devices) {
     int count = ds18b20_device_num < max_devices ? ds18b20_device_num : max_devices;
     for (int i = 0; i < count; i++) {
         devices[i].address = ds18b20s[i].address;
-        devices[i].sensor_id = ds18b20s[i].sensor_id;
         devices[i].last_temperature_c = ds18b20s[i].last_temperature_c;
         devices[i].last_updated = ds18b20s[i].last_updated;
     }

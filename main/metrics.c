@@ -40,7 +40,7 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
     int sensor_count = sensors_get_count();
     for (int i = 0; i < sensor_count; i++) {
         const sensor_data_t *sensor = sensors_get_by_index(i);
-        if (sensor == NULL) {
+        if (sensor == NULL || sensor->metric_name[0] == '\0') {
             continue;
         }
         
@@ -63,8 +63,18 @@ static esp_err_t metrics_handler(httpd_req_t *req) {
             int64_t timestamp_ms = (int64_t)sensor->last_updated * 1000;
             
             offset += snprintf(response + offset, response_size - offset,
-                              "%s{hostname=\"%s\"} %.2f %lld\n", 
-                              sensor->metric_name, hostname, sensor->value, timestamp_ms);
+                              "%s{hostname=\"%s\"%s%s%s%s%s%s} %.2f %lld\n", 
+                              sensor->metric_name, hostname, 
+
+                              sensor->device_name[0] != '\0' ? ",device_name=\"" : "",
+                              sensor->device_name[0] != '\0' ? sensor->device_name : "",
+                              sensor->device_name[0] != '\0' ? "\"" : "",
+
+                              sensor->device_id[0] != '\0' ? ",device_id=\"" : "",
+                              sensor->device_id[0] != '\0' ? sensor->device_id : "",
+                              sensor->device_id[0] != '\0' ? "\"" : "",
+
+                              sensor->value, timestamp_ms);
         }
     }
     

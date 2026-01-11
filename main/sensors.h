@@ -20,7 +20,7 @@ typedef struct {
     char display_name[SENSOR_DISPLAY_NAME_MAX_LEN];
     char unit[SENSOR_UNIT_MAX_LEN];
     char metric_name[SENSOR_DISPLAY_NAME_MAX_LEN];  // Prometheus metric name
-    char device_label[SENSOR_DEVICE_NAME_MAX_LEN]; // Device label for Prometheus
+    char device_name[SENSOR_DEVICE_NAME_MAX_LEN]; // Device label for Prometheus
     char device_id[SENSOR_DEVICE_ID_MAX_LEN];    // Device ID for Prometheus
     float value;
     time_t last_updated;
@@ -43,9 +43,16 @@ void sensors_init(settings_t *settings, httpd_handle_t server);
  * @param display_name Display name of the sensor (will be truncated if too long)
  * @param unit Unit string for the sensor value (e.g., "g", "°C", "lbs")
  * @param metric_name Metric name for the sensor
+ * @param device_name Optional device name label for Prometheus (can be NULL)
+ * @param device_id Optional device ID label for Prometheus (can be NULL)s
  * @return int Sensor ID (index) if successful, -1 if registration failed
  */
-int sensors_register(const char *display_name, const char *unit, const char *metric_name);
+int sensors_register(
+    const char *display_name,
+    const char *unit,
+    const char *metric_name,
+    const char *device_name, 
+    const char *device_id);
 
 /**
  * @brief Update a sensor's value

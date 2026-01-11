@@ -176,6 +176,9 @@ static esp_err_t sensors_data_handler(httpd_req_t *req) {
     int pos = snprintf(json_buf, 2048, "{\"sensors\":[");
     
     for (int i = 0; i < sensor_count && pos < 2000; i++) {
+        if (sensors[i].display_name[0] == '\0' || sensors[i].unit[0] == '\0') {
+            continue;
+        }
         if (i > 0) {
             pos += snprintf(json_buf + pos, 2048 - pos, ",");
         }
@@ -261,7 +264,12 @@ static httpd_uri_t version_uri = {
     .user_ctx  = NULL
 };
 
-int sensors_register(const char *display_name, const char *unit, const char *metric_name) {
+int sensors_register(
+    const char *display_name,
+    const char *unit,
+    const char *metric_name,
+    const char *device_name, 
+    const char *device_id) {
     if (sensors_mutex != NULL) {
         xSemaphoreTake(sensors_mutex, portMAX_DELAY);
     }
@@ -280,6 +288,20 @@ int sensors_register(const char *display_name, const char *unit, const char *met
     // Copy name, unit, and metric_name, ensuring null termination
     strncpy(sensors[id].display_name, display_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
     sensors[id].display_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
+
+    if (device_name && strlen(device_name) > 0) {
+        strncpy(sensors[id].device_name, device_name, SENSOR_DEVICE_NAME_MAX_LEN - 1);
+        sensors[id].device_name[SENSOR_DEVICE_NAME_MAX_LEN - 1] = '\0';
+    } else {
+        sensors[id].device_name[0] = '\0';
+    }
+    
+    if (device_id && strlen(device_id) > 0) {
+        strncpy(sensors[id].device_id, device_id, SENSOR_DEVICE_ID_MAX_LEN - 1);
+        sensors[id].device_id[SENSOR_DEVICE_ID_MAX_LEN - 1] = '\0';
+    } else {
+        sensors[id].device_id[0] = '\0';
+    }
     
     strncpy(sensors[id].unit, unit, SENSOR_UNIT_MAX_LEN - 1);
     sensors[id].unit[SENSOR_UNIT_MAX_LEN - 1] = '\0';

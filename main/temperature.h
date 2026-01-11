@@ -9,7 +9,6 @@
 
 typedef struct {
     uint64_t address;
-    int sensor_id;
     float last_temperature_c;
     time_t last_updated;
 } ds18b20_info_t;
