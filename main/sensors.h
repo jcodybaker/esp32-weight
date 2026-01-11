@@ -13,7 +13,7 @@
 // Maximum length for sensor name and unit strings
 #define SENSOR_DISPLAY_NAME_MAX_LEN 40
 #define SENSOR_DEVICE_NAME_MAX_LEN 32
-#define SENSOR_DEVICE_ID_MAX_LEN 16
+#define SENSOR_DEVICE_ID_MAX_LEN 20
 #define SENSOR_UNIT_MAX_LEN 16
 
 typedef struct {
