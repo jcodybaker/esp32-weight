@@ -47,6 +47,9 @@ void run_ds18b20(void *pvParameters) {
                     ESP_LOGE(TAG, "Failed to read temperature from DS18B20[%d] [%016llX]", i, ds18b20s[i].address);
                 }
                 sensors_update(ds18b20s[i].sensor_id_c, 0.0f, false);
+                if (ds18b20s[i].sensor_id_f >= 0) {
+                    sensors_update(ds18b20s[i].sensor_id_f, 0.0f, false);
+                }
                 continue;
             }
             
@@ -147,7 +150,6 @@ void init_ds18b20(settings_t *settings) {
                         "Temperature", unit, "temperature", device_name ? device_name : addr_str, addr_str);
                     ds18b20s[ds18b20_device_num].sensor_id_f = -1;
                 }
-
                 
                 if (device_name && strlen(device_name) > 0) {
                     ESP_LOGI(TAG, "Found a DS18B20[%d] '%s', address: %016llX", ds18b20_device_num, device_name, address);
@@ -160,7 +162,6 @@ void init_ds18b20(settings_t *settings) {
                     ESP_LOGI(TAG, "Max DS18B20 number reached, stop searching...");
                     break;
                 }
-                
             } else {
                 ESP_LOGI(TAG, "Found an unknown device, address: %016llX", next_onewire_device.address);
             }

@@ -310,17 +310,7 @@ int sensors_register(
         strncpy(sensors[id].metric_name, metric_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
         sensors[id].metric_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
     } else {
-        // Auto-generate metric name from sensor display name if not provided
-        strncpy(sensors[id].metric_name, display_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
-        sensors[id].metric_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
-        // Convert to lowercase and replace spaces with underscores
-        for (char *p = sensors[id].metric_name; *p; p++) {
-            if (*p == ' ' || *p == '-') {
-                *p = '_';
-            } else if (*p >= 'A' && *p <= 'Z') {
-                *p = *p + ('a' - 'A');
-            }
-        }
+        sensors[id].metric_name[0] = '\0';
     }
     
     sensors[id].value = 0.0f;
@@ -338,26 +328,7 @@ int sensors_register(
 }
 
 bool sensors_update(int sensor_id, float value, bool available) {
-    if (sensors_mutex != NULL) {
-        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
-    }
-    
-    if (sensor_id < 0 || sensor_id >= sensor_count) {
-        ESP_LOGE(TAG, "Invalid sensor_id %d (valid range: 0-%d)", sensor_id, sensor_count - 1);
-        if (sensors_mutex != NULL) {
-            xSemaphoreGive(sensors_mutex);
-        }
-        return false;
-    }
-    
-    sensors[sensor_id].value = value;
-    sensors[sensor_id].available = available;
-    sensors[sensor_id].last_updated = time(NULL);
-    
-    if (sensors_mutex != NULL) {
-        xSemaphoreGive(sensors_mutex);
-    }
-    return true;
+    return sensors_update_with_link(sensor_id, value, available, NULL, NULL);
 }
 
 bool sensors_update_with_link(int sensor_id, float value, bool available, const char *link_url, const char *link_text) {
