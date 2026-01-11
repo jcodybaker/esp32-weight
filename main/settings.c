@@ -119,28 +119,48 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "<style>\n"
         "body { font-family: Arial, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }\n"
         "h1 { color: #333; }\n"
-        "form { background: #f4f4f4; padding: 20px; border-radius: 8px; }\n"
+        "#settingsForm { background: #f4f4f4; padding: 20px; border-radius: 8px; }\n"
         "label { display: block; margin-top: 15px; font-weight: bold; }\n"
         "input, select { width: 100%; padding: 8px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }\n"
         "input[type='checkbox'] { width: auto; }\n"
-        "button { background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; width: 100%; font-size: 16px; }\n"
+        "button { background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; font-size: 16px; }\n"
+        "#settingsForm button { display: inline-block; background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; margin-top: 20px; width: 100%; font-size: 16px; }\n"
         "button:hover { background: #45a049; }\n"
         "hr.minor { margin: 10px 0; border: 0; border-top: 1px solid #ccc; }\n"
         "hr.major { margin: 30px 0; border: 0; border-top: 1px solid #ccc; }\n"
         ".message { padding: 10px; margin: 10px 0; border-radius: 4px; display: none; }\n"
         ".success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }\n"
         ".error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }\n"
+        "a.button { display: inline-block; background: #4CAF50; color: white; padding: 12px 20px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; font-size: 16px; }\n"
+        "a.button:hover { background: #45a049; }\n"
         "</style>\n"
         "</head>\n"
         "<body>\n"
-        "<h1>Weight Station Settings</h1>\n"
-        "<a href='/'>Home</a> | <a href='/pump/calibrate'>Calibrate Pump</a><br>\n"
+        "<h1>Sensor Station Settings</h1>\n"
+        "<a href='/' class=\"button\">Home</a>\n"
+        "<a href='/pump/calibrate' class=\"button\">Calibrate Pump</a>\n"
+        "<form action='/ota' method='POST' style='display: inline;'>\n"
+        "<button type='submit'>Start OTA Update</button>\n"
+        "</form>\n"
+        "<form action='/reboot' method='POST' style='display: inline;'>\n"
+        "<button type='submit' style='background: #ff9800;'>Reboot Device</button>\n"
+        "</form><br>\n"
         "<div id='message' class='message'></div>\n"
         "<form id='settingsForm'>\n"
+        "<h2>General Configuration</h2>\n"
         "<label for='password'>Password:</label>\n"
         "<input type='password' id='password' name='password' placeholder='Leave blank to keep current'>\n"
         );
-    
+
+    // Send hostname with current value
+    char *encoded_hostname = url_encode(settings->hostname);
+    snprintf(buffer, 1024,
+        "<label for='hostname'>Hostname:</label>\n"
+        "<input type='text' id='hostname' name='hostname' value='%s'>\n",
+        encoded_hostname ? encoded_hostname : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_hostname);
+
     // Send update_url with current value
     char *encoded_update_url = url_encode(settings->update_url);
     snprintf(buffer, 1024, 
@@ -149,11 +169,72 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "<input type='text' id='update_url' name='update_url' value='%s'>\n",
         encoded_update_url ? encoded_update_url : "");
     httpd_resp_sendstr_chunk(req, buffer);
-    free(encoded_update_url);
+    free(encoded_update_url);    
+
+    // Send timezone with current value
+    char *encoded_timezone = url_encode(settings->timezone);
+    snprintf(buffer, 1024,
+        "<label for='timezone'>Timezone (e.g., EST5EDT,M3.2.0,M11.1.0):</label>\n"
+        "<input type='text' id='timezone' name='timezone' value='%s' placeholder='UTC0'>\n",
+        encoded_timezone ? encoded_timezone : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_timezone);
+
+    // Send temperature unit checkbox
+    snprintf(buffer, 1024,
+        "<hr class='minor'/>\n"
+        "<label for='temp_use_fahrenheit'>\n"
+        "<input type='checkbox' id='temp_use_fahrenheit' name='temp_use_fahrenheit' value='1'%s> Display Temperatures in Fahrenheit (&deg;F)\n"
+        "</label>\n",
+        settings->temp_use_fahrenheit ? " checked" : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+
+    // Send wifi_ssid with current value
+    char *encoded_wifi_ssid = url_encode(settings->wifi_ssid);
+    snprintf(buffer, 1024,
+        "<hr class='minor'/>\n"
+        "<h2>Wifi Configuration</h2>\n"
+        "<label for='wifi_ssid'>Wifi SSID:</label>\n"
+        "<input type='text' id='wifi_ssid' name='wifi_ssid' value='%s'>\n",
+        encoded_wifi_ssid ? encoded_wifi_ssid : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_wifi_ssid);
     
+    // Send wifi_password and checkbox
+    snprintf(buffer, 1024,
+        "<label for='wifi_password'>Wifi Password:</label>\n"
+        "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>\n"
+        "<label for='wifi_ap_fallback_disable'>\n"
+        "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'%s> Disable WiFi AP Fallback\n"
+        "</label>\n",
+        settings->wifi_ap_fallback_disable ? " checked" : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+        
+    // Send syslog settings
+    httpd_resp_sendstr_chunk(req,
+        "<hr class='major'/>\n"
+        "<h2>Syslog Configuration</h2>\n");
+    
+    // Send syslog_server with current value
+    char *encoded_syslog_server = url_encode(settings->syslog_server);
+    snprintf(buffer, 1024,
+        "<label for='syslog_server'>Syslog Server (hostname or IP):</label>\n"
+        "<input type='text' id='syslog_server' name='syslog_server' value='%s' placeholder='syslog.example.com'>\n",
+        encoded_syslog_server ? encoded_syslog_server : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_syslog_server);
+    
+    // Send syslog_port with current value
+    snprintf(buffer, 1024,
+        "<label for='syslog_port'>Syslog Port:</label>\n"
+        "<input type='number' id='syslog_port' name='syslog_port' value='%u' min='1' max='65535'>\n",
+        settings->syslog_port);
+    httpd_resp_sendstr_chunk(req, buffer);
+
     // Send weight_tare with current value
     snprintf(buffer, 1024,
         "<hr class='minor'/>\n"
+        "<h2>Weight Configuration</h2>\n"
         "<label for='weight_tare'>Weight Tare:</label>\n"
         "<input type='number' id='weight_tare' name='weight_tare' value='%" PRId32 "'>\n",
         settings->weight_tare);
@@ -178,20 +259,7 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         settings->weight_gain == HX711_GAIN_A_64 ? " selected" : "",
         settings->weight_gain == HX711_GAIN_B_32 ? " selected" : "");
     httpd_resp_sendstr_chunk(req, buffer);
-    
-    // Send ds18b20_gpio with current value
-    snprintf(buffer, 1024,
-        "<label for='ds18b20_gpio'>DS18B20 Temperature Sensor GPIO Pin (-1 = disabled):</label>\n"
-        "<input type='number' id='ds18b20_gpio' name='ds18b20_gpio' value='%d' min='-1' max='39'>\n",
-        settings->ds18b20_gpio);
-    httpd_resp_sendstr_chunk(req, buffer);
-    
-    // Send ds18b20_pwr_gpio with current value
-    snprintf(buffer, 1024,
-        "<label for='ds18b20_pwr_gpio'>DS18B20 Power GPIO Pin (-1 = disabled):</label>\n"
-        "<input type='number' id='ds18b20_pwr_gpio' name='ds18b20_pwr_gpio' value='%d' min='-1' max='39'>\n",
-        settings->ds18b20_pwr_gpio);
-    httpd_resp_sendstr_chunk(req, buffer);
+
     
     // Send weight_dt_gpio with current value
     snprintf(buffer, 1024,
@@ -206,10 +274,11 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "<input type='number' id='weight_sck_gpio' name='weight_sck_gpio' value='%d' min='-1' max='39'>\n",
         settings->weight_sck_gpio);
     httpd_resp_sendstr_chunk(req, buffer);
-    
+
     // Send pump_scl_gpio with current value
     snprintf(buffer, 1024,
         "<hr class='minor'/>\n"
+        "<h2>Pump Configuration</h2>\n"
         "<label for='pump_scl_gpio'>Pump I2C SCL GPIO Pin (-1 = disabled):</label>\n"
         "<input type='number' id='pump_scl_gpio' name='pump_scl_gpio' value='%d' min='-1' max='39'>\n",
         settings->pump_scl_gpio);
@@ -245,78 +314,116 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         httpd_resp_sendstr_chunk(req, pump_error);
         httpd_resp_sendstr_chunk(req, "</div>\n");
     }
-    
-    // Send wifi_ssid with current value
-    char *encoded_wifi_ssid = url_encode(settings->wifi_ssid);
+        
+    // Send ds18b20_gpio with current value
     snprintf(buffer, 1024,
         "<hr class='minor'/>\n"
-        "<label for='wifi_ssid'>Wifi SSID:</label>\n"
-        "<input type='text' id='wifi_ssid' name='wifi_ssid' value='%s'>\n",
-        encoded_wifi_ssid ? encoded_wifi_ssid : "");
+        "<h2>DS18B20 Thermometer Configuration</h2>\n"
+        "<label for='ds18b20_gpio'>DS18B20 Temperature Sensor GPIO Pin (-1 = disabled):</label>\n"
+        "<input type='number' id='ds18b20_gpio' name='ds18b20_gpio' value='%d' min='-1' max='39'>\n",
+        settings->ds18b20_gpio);
     httpd_resp_sendstr_chunk(req, buffer);
-    free(encoded_wifi_ssid);
     
-    // Send wifi_password and checkbox
+    // Send ds18b20_pwr_gpio with current value
     snprintf(buffer, 1024,
-        "<label for='wifi_password'>Wifi Password:</label>\n"
-        "<input type='password' id='wifi_password' name='wifi_password' placeholder='Leave blank to keep current'>\n"
-        "<label for='wifi_ap_fallback_disable'>\n"
-        "<input type='checkbox' id='wifi_ap_fallback_disable' name='wifi_ap_fallback_disable' value='1'%s> Disable WiFi AP Fallback\n"
-        "</label>\n",
-        settings->wifi_ap_fallback_disable ? " checked" : "");
+        "<label for='ds18b20_pwr_gpio'>DS18B20 Power GPIO Pin (-1 = disabled):</label>\n"
+        "<input type='number' id='ds18b20_pwr_gpio' name='ds18b20_pwr_gpio' value='%d' min='-1' max='39'>\n",
+        settings->ds18b20_pwr_gpio);
     httpd_resp_sendstr_chunk(req, buffer);
-    
-    // Send hostname with current value
-    char *encoded_hostname = url_encode(settings->hostname);
-    snprintf(buffer, 1024,
-        "<label for='hostname'>Hostname:</label>\n"
-        "<input type='text' id='hostname' name='hostname' value='%s'>\n",
-        encoded_hostname ? encoded_hostname : "");
-    httpd_resp_sendstr_chunk(req, buffer);
-    free(encoded_hostname);
-    
-    // Send timezone with current value
-    char *encoded_timezone = url_encode(settings->timezone);
-    snprintf(buffer, 1024,
-        "<label for='timezone'>Timezone (e.g., EST5EDT,M3.2.0,M11.1.0):</label>\n"
-        "<input type='text' id='timezone' name='timezone' value='%s' placeholder='UTC0'>\n",
-        encoded_timezone ? encoded_timezone : "");
-    httpd_resp_sendstr_chunk(req, buffer);
-    free(encoded_timezone);
-    
-    // Send temperature unit checkbox
-    snprintf(buffer, 1024,
-        "<hr class='minor'/>\n"
-        "<label for='temp_use_fahrenheit'>\n"
-        "<input type='checkbox' id='temp_use_fahrenheit' name='temp_use_fahrenheit' value='1'%s> Display Temperatures in Fahrenheit (°F)\n"
-        "</label>\n",
-        settings->temp_use_fahrenheit ? " checked" : "");
-    httpd_resp_sendstr_chunk(req, buffer);
-    
-    // Send syslog settings
+
+        // Send DS18B20 device names section
     httpd_resp_sendstr_chunk(req,
-        "<hr class='major'/>\n"
-        "<h2>Syslog Configuration</h2>\n");
+        "<hr class='minor'/>\n"
+        "<label>DS18B20 Temperature Sensor Names:</label>\n"
+        "<div id='ds18b20_names_container'>\n");
     
-    // Send syslog_server with current value
-    char *encoded_syslog_server = url_encode(settings->syslog_server);
-    snprintf(buffer, 1024,
-        "<label for='syslog_server'>Syslog Server (hostname or IP):</label>\n"
-        "<input type='text' id='syslog_server' name='syslog_server' value='%s' placeholder='syslog.example.com'>\n",
-        encoded_syslog_server ? encoded_syslog_server : "");
-    httpd_resp_sendstr_chunk(req, buffer);
-    free(encoded_syslog_server);
+    // Get currently detected DS18B20 devices
+    ds18b20_info_t detected_devices[EXAMPLE_ONEWIRE_MAX_DS18B20];
+    int detected_count = get_ds18b20_devices(detected_devices, EXAMPLE_ONEWIRE_MAX_DS18B20);
     
-    // Send syslog_port with current value
-    snprintf(buffer, 1024,
-        "<label for='syslog_port'>Syslog Port:</label>\n"
-        "<input type='number' id='syslog_port' name='syslog_port' value='%u' min='1' max='65535'>\n",
-        settings->syslog_port);
+    // Create a merged list: detected devices with their saved names (if any)
+    size_t display_index = 0;
+    
+    // First, output all detected devices
+    for (int i = 0; i < detected_count; i++) {
+        char addr_str[17];
+        snprintf(addr_str, sizeof(addr_str), "%016llX", detected_devices[i].address);
+        
+        // Look up the name for this device
+        const char *device_name = settings_get_ds18b20_name(settings, detected_devices[i].address);
+        char *encoded_name = url_encode(device_name ? device_name : "");
+        
+        snprintf(buffer, 1024,
+            "<div class='ds18b20_name_row' style='margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px;'>\n"
+            "  <input type='text' name='ds18b20_name[%zu][address]' value='%s' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address' readonly>\n"
+            "  <input type='text' name='ds18b20_name[%zu][name]' value='%s' placeholder='Device Name' style='width: 250px;'>\n"
+            "  <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
+            "</div>\n",
+            display_index, addr_str, display_index, encoded_name ? encoded_name : "");
+        httpd_resp_sendstr_chunk(req, buffer);
+        free(encoded_name);
+        display_index++;
+    }
+    
+    // Then, output any saved device names for devices that are NOT currently detected
+    for (size_t i = 0; i < settings->ds18b20_names_count; i++) {
+        bool is_detected = false;
+        for (int j = 0; j < detected_count; j++) {
+            if (settings->ds18b20_names[i].address == detected_devices[j].address) {
+                is_detected = true;
+                break;
+            }
+        }
+        
+        if (!is_detected) {
+            char addr_str[17];
+            snprintf(addr_str, sizeof(addr_str), "%016llX", settings->ds18b20_names[i].address);
+            
+            char *encoded_name = url_encode(settings->ds18b20_names[i].name);
+            
+            snprintf(buffer, 1024,
+                "<div class='ds18b20_name_row' style='margin: 10px 0; padding: 10px; background: #eee; border: 1px solid #ddd; border-radius: 4px;'>\n"
+                "  <input type='text' name='ds18b20_name[%zu][address]' value='%s' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address'>\n"
+                "  <input type='text' name='ds18b20_name[%zu][name]' value='%s' placeholder='Device Name (not currently detected)' style='width: 250px;'>\n"
+                "  <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
+                "</div>\n",
+                display_index, addr_str, display_index, encoded_name ? encoded_name : "");
+            httpd_resp_sendstr_chunk(req, buffer);
+            free(encoded_name);
+            display_index++;
+        }
+    }
+    
+    httpd_resp_sendstr_chunk(req,
+        "</div>\n"
+        "<button type='button' onclick='addDS18B20Name()' style='width: auto; background: #007bff; margin-top: 10px;'>Add DS18B20 Name</button>\n"
+        "<script>\n"
+        "var ds18b20NameIndex = " );
+    
+    // Use display_index which accounts for all devices shown
+    snprintf(buffer, 1024, "%zu;\n", display_index);
     httpd_resp_sendstr_chunk(req, buffer);
+    
+    httpd_resp_sendstr_chunk(req,
+        "function addDS18B20Name() {\n"
+        "  var container = document.getElementById('ds18b20_names_container');\n"
+        "  var div = document.createElement('div');\n"
+        "  div.className = 'ds18b20_name_row';\n"
+        "  div.style = 'margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px;';\n"
+        "  div.innerHTML = `\n"
+        "    <input type='text' name='ds18b20_name[${ds18b20NameIndex}][address]' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address'>\n"
+        "    <input type='text' name='ds18b20_name[${ds18b20NameIndex}][name]' placeholder='Device Name' style='width: 250px;'>\n"
+        "    <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
+        "  `;\n"
+        "  container.appendChild(div);\n"
+        "  ds18b20NameIndex++;\n"
+        "}\n"
+        "</script>\n");
     
     // Send BTHome object IDs multi-select
     httpd_resp_sendstr_chunk(req,
         "<hr class='minor'/>\n"
+        "<h2>BTHome Configuration</h2>\n"
         "<label for='bthome_objects'>BTHome Objects to Monitor:</label>\n"
         "<select id='bthome_objects' name='bthome_objects' multiple size='10' style='height: 200px;'>\n");
     
@@ -414,94 +521,6 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "}\n"
         "</script>\n");
     
-    // Send DS18B20 device names section
-    httpd_resp_sendstr_chunk(req,
-        "<hr class='minor'/>\n"
-        "<label>DS18B20 Temperature Sensor Names:</label>\n"
-        "<div id='ds18b20_names_container'>\n");
-    
-    // Get currently detected DS18B20 devices
-    ds18b20_info_t detected_devices[EXAMPLE_ONEWIRE_MAX_DS18B20];
-    int detected_count = get_ds18b20_devices(detected_devices, EXAMPLE_ONEWIRE_MAX_DS18B20);
-    
-    // Create a merged list: detected devices with their saved names (if any)
-    size_t display_index = 0;
-    
-    // First, output all detected devices
-    for (int i = 0; i < detected_count; i++) {
-        char addr_str[17];
-        snprintf(addr_str, sizeof(addr_str), "%016llX", detected_devices[i].address);
-        
-        // Look up the name for this device
-        const char *device_name = settings_get_ds18b20_name(settings, detected_devices[i].address);
-        char *encoded_name = url_encode(device_name ? device_name : "");
-        
-        snprintf(buffer, 1024,
-            "<div class='ds18b20_name_row' style='margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px;'>\n"
-            "  <input type='text' name='ds18b20_name[%zu][address]' value='%s' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address' readonly>\n"
-            "  <input type='text' name='ds18b20_name[%zu][name]' value='%s' placeholder='Device Name' style='width: 250px;'>\n"
-            "  <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
-            "</div>\n",
-            display_index, addr_str, display_index, encoded_name ? encoded_name : "");
-        httpd_resp_sendstr_chunk(req, buffer);
-        free(encoded_name);
-        display_index++;
-    }
-    
-    // Then, output any saved device names for devices that are NOT currently detected
-    for (size_t i = 0; i < settings->ds18b20_names_count; i++) {
-        bool is_detected = false;
-        for (int j = 0; j < detected_count; j++) {
-            if (settings->ds18b20_names[i].address == detected_devices[j].address) {
-                is_detected = true;
-                break;
-            }
-        }
-        
-        if (!is_detected) {
-            char addr_str[17];
-            snprintf(addr_str, sizeof(addr_str), "%016llX", settings->ds18b20_names[i].address);
-            
-            char *encoded_name = url_encode(settings->ds18b20_names[i].name);
-            
-            snprintf(buffer, 1024,
-                "<div class='ds18b20_name_row' style='margin: 10px 0; padding: 10px; background: #eee; border: 1px solid #ddd; border-radius: 4px;'>\n"
-                "  <input type='text' name='ds18b20_name[%zu][address]' value='%s' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address'>\n"
-                "  <input type='text' name='ds18b20_name[%zu][name]' value='%s' placeholder='Device Name (not currently detected)' style='width: 250px;'>\n"
-                "  <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
-                "</div>\n",
-                display_index, addr_str, display_index, encoded_name ? encoded_name : "");
-            httpd_resp_sendstr_chunk(req, buffer);
-            free(encoded_name);
-            display_index++;
-        }
-    }
-    
-    httpd_resp_sendstr_chunk(req,
-        "</div>\n"
-        "<button type='button' onclick='addDS18B20Name()' style='width: auto; background: #007bff; margin-top: 10px;'>Add DS18B20 Name</button>\n"
-        "<script>\n"
-        "var ds18b20NameIndex = " );
-    
-    // Use display_index which accounts for all devices shown
-    snprintf(buffer, 1024, "%zu;\n", display_index);
-    httpd_resp_sendstr_chunk(req, buffer);
-    
-    httpd_resp_sendstr_chunk(req,
-        "function addDS18B20Name() {\n"
-        "  var container = document.getElementById('ds18b20_names_container');\n"
-        "  var div = document.createElement('div');\n"
-        "  div.className = 'ds18b20_name_row';\n"
-        "  div.style = 'margin: 10px 0; padding: 10px; background: #fff; border: 1px solid #ddd; border-radius: 4px;';\n"
-        "  div.innerHTML = `\n"
-        "    <input type='text' name='ds18b20_name[${ds18b20NameIndex}][address]' placeholder='Device Address (hex)' style='width: 180px;' pattern='[0-9a-fA-F]{16}' title='16-character hex address'>\n"
-        "    <input type='text' name='ds18b20_name[${ds18b20NameIndex}][name]' placeholder='Device Name' style='width: 250px;'>\n"
-        "    <button type='button' onclick='this.parentElement.remove()' style='width: auto; padding: 5px 10px; background: #dc3545; margin-left: 10px;'>Remove</button>\n"
-        "  `;\n"
-        "  container.appendChild(div);\n"
-        "  ds18b20NameIndex++;\n"
-        "}\n"
-        "</script>\n");
     
     // Get firmware version info
     const esp_app_desc_t *app_desc = esp_app_get_description();
@@ -514,13 +533,6 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
     // Send form footer and JavaScript
     httpd_resp_sendstr_chunk(req,
         "<button type='submit'>Update Settings</button>\n"
-        "</form>\n"
-        "<hr class='major'/>\n"
-        "<form action='/ota' method='POST'>\n"
-        "<button type='submit'>Start OTA Update</button>\n"
-        "</form>\n"
-        "<form action='/reboot' method='POST'>\n"
-        "<button type='submit' style='background: #ff9800;'>Reboot Device</button>\n"
         "</form>\n"
         "<footer style='margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; color: #999; font-size: 12px;'>\n");
     
