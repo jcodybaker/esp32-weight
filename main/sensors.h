@@ -11,12 +11,17 @@
 #define MAX_SENSORS 60
 
 // Maximum length for sensor name and unit strings
-#define SENSOR_NAME_MAX_LEN 40
+#define SENSOR_DISPLAY_NAME_MAX_LEN 40
+#define SENSOR_DEVICE_NAME_MAX_LEN 32
+#define SENSOR_DEVICE_ID_MAX_LEN 16
 #define SENSOR_UNIT_MAX_LEN 16
 
 typedef struct {
-    char name[SENSOR_NAME_MAX_LEN];
+    char display_name[SENSOR_DISPLAY_NAME_MAX_LEN];
     char unit[SENSOR_UNIT_MAX_LEN];
+    char metric_name[SENSOR_DISPLAY_NAME_MAX_LEN];  // Prometheus metric name
+    char device_label[SENSOR_DEVICE_NAME_MAX_LEN]; // Device label for Prometheus
+    char device_id[SENSOR_DEVICE_ID_MAX_LEN];    // Device ID for Prometheus
     float value;
     time_t last_updated;
     bool available;
@@ -35,11 +40,12 @@ void sensors_init(settings_t *settings, httpd_handle_t server);
 /**
  * @brief Register a new sensor
  * 
- * @param name Name of the sensor (will be truncated if too long)
+ * @param display_name Display name of the sensor (will be truncated if too long)
  * @param unit Unit string for the sensor value (e.g., "g", "°C", "lbs")
+ * @param metric_name Metric name for the sensor
  * @return int Sensor ID (index) if successful, -1 if registration failed
  */
-int sensors_register(const char *name, const char *unit);
+int sensors_register(const char *display_name, const char *unit, const char *metric_name);
 
 /**
  * @brief Update a sensor's value
@@ -72,5 +78,20 @@ bool sensors_update_with_link(int sensor_id, float value, bool available,
  * @return float Current sensor value
  */
 float sensors_get_value(int sensor_id, bool *available);
+
+/**
+ * @brief Get the number of registered sensors
+ * 
+ * @return int Number of registered sensors
+ */
+int sensors_get_count(void);
+
+/**
+ * @brief Get sensor data by index
+ * 
+ * @param index Sensor index (0 to sensor_count-1)
+ * @return const sensor_data_t* Pointer to sensor data, or NULL if index is invalid
+ */
+const sensor_data_t* sensors_get_by_index(int index);
 
 #endif // SENSORS_H

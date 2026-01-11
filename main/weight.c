@@ -147,8 +147,8 @@ void weight_init(settings_t *settings)
         return;
     }
     // Register weight sensors
-    sensor_id_grams = sensors_register("Weight", "g");
-    sensor_id_lbs = sensors_register("Weight", "lbs");
+    sensor_id_grams = sensors_register("Weight", "g", "weight_grams");
+    sensor_id_lbs = sensors_register("Weight", "lbs", "weight_lbs");
     
     // Start the weight reading task
     xTaskCreate(weight, "weight", configMINIMAL_STACK_SIZE * 5, settings, 5, NULL);

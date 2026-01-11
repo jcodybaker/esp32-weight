@@ -450,12 +450,12 @@ void pump_init(settings_t *settings, httpd_handle_t server) {
     ESP_LOGI(TAG, "Pump initialized successfully, firmware version: %s", response);
 
     // Register sensors
-    pump_ctx->voltage_sensor_id = sensors_register("Pump Voltage", "V");
+    pump_ctx->voltage_sensor_id = sensors_register("Pump Voltage", "V", "pump_voltage_ml");
     if (pump_ctx->voltage_sensor_id < 0) {
         ESP_LOGW(TAG, "Failed to register pump voltage sensor");
     }
     
-    pump_ctx->total_volume_sensor_id = sensors_register("Pump Total Volume", "ml");
+    pump_ctx->total_volume_sensor_id = sensors_register("Pump Total Volume", "ml", "pump_total_volume_ml");
     if (pump_ctx->total_volume_sensor_id < 0) {
         ESP_LOGW(TAG, "Failed to register pump total volume sensor");
     }

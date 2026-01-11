@@ -129,11 +129,30 @@ void init_ds18b20(settings_t *settings) {
                 ds18b20_get_device_address(ds18b20s[ds18b20_device_num].dev, &address);
                 ds18b20s[ds18b20_device_num].address = address;
                 const char *unit = settings->temp_use_fahrenheit ? "F" : "C";
-                ds18b20s[ds18b20_device_num].sensor_id = sensors_register("Temperature", unit);
                 
-                const char *name = settings_get_ds18b20_name(settings, address);
-                if (name && strlen(name) > 0) {
-                    ESP_LOGI(TAG, "Found a DS18B20[%d] '%s', address: %016llX", ds18b20_device_num, name, address);
+                // Build metric name with device address
+                char metric_name[64];
+                const char *device_name = settings_get_ds18b20_name(settings, address);
+                if (device_name && strlen(device_name) > 0) {
+                    // Use device name for metric if available
+                    snprintf(metric_name, sizeof(metric_name), "ds18b20_temperature_%s", device_name);
+                    // Convert to lowercase and replace spaces with underscores
+                    for (char *p = metric_name; *p; p++) {
+                        if (*p == ' ' || *p == '-') {
+                            *p = '_';
+                        } else if (*p >= 'A' && *p <= 'Z') {
+                            *p = *p + ('a' - 'A');
+                        }
+                    }
+                } else {
+                    // Use address for metric if no name configured
+                    snprintf(metric_name, sizeof(metric_name), "ds18b20_temperature_%016llx", address);
+                }
+                
+                ds18b20s[ds18b20_device_num].sensor_id = sensors_register("Temperature", unit, metric_name);
+                
+                if (device_name && strlen(device_name) > 0) {
+                    ESP_LOGI(TAG, "Found a DS18B20[%d] '%s', address: %016llX", ds18b20_device_num, device_name, address);
                 } else {
                     ESP_LOGI(TAG, "Found a DS18B20[%d], address: %016llX", ds18b20_device_num, address);
                 }

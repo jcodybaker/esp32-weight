@@ -380,7 +380,7 @@ static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id)
     }
     
     // Create sensor name using configured device name from settings
-    char sensor_name[SENSOR_NAME_MAX_LEN];
+    char sensor_name[SENSOR_DISPLAY_NAME_MAX_LEN];
     sensor_name[0] = '\0';
     
     if (device_name[0] != '\0' && type_name != NULL) {
@@ -414,8 +414,20 @@ static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id)
         }
     }
     
+    // Generate prometheus metric name
+    char metric_name[128];
+    snprintf(metric_name, sizeof(metric_name), "bthome_%s", sensor_name);
+    // Replace spaces and hyphens with underscores, convert to lowercase
+    for (char *p = metric_name; *p; p++) {
+        if (*p == ' ' || *p == '-' || *p == ':') {
+            *p = '_';
+        } else if (*p >= 'A' && *p <= 'Z') {
+            *p = *p + ('a' - 'A');
+        }
+    }
+    
     // Register with sensor system
-    int sensor_id = sensors_register(sensor_name, unit ? unit : "");
+    int sensor_id = sensors_register(sensor_name, unit ? unit : "", metric_name);
     if (sensor_id < 0) {
         ESP_LOGE(TAG, "Failed to register BTHome sensor: %s", sensor_name);
         xSemaphoreGive(sensor_map_mutex);

@@ -184,7 +184,7 @@ static esp_err_t sensors_data_handler(httpd_req_t *req) {
         char sensor_json[512];
         int spos = snprintf(sensor_json, sizeof(sensor_json),
                        "{\"name\":\"%s\",\"unit\":\"%s\",\"value\":%.2f,\"last_updated\":%" PRId64 ",\"available\":%s",
-                       sensors[i].name,
+                       sensors[i].display_name,
                        sensors[i].unit,
                        sensors[i].value,
                        (int64_t)sensors[i].last_updated,
@@ -261,14 +261,14 @@ static httpd_uri_t version_uri = {
     .user_ctx  = NULL
 };
 
-int sensors_register(const char *name, const char *unit) {
+int sensors_register(const char *display_name, const char *unit, const char *metric_name) {
     if (sensors_mutex != NULL) {
         xSemaphoreTake(sensors_mutex, portMAX_DELAY);
     }
     
     if (sensor_count >= MAX_SENSORS) {
         ESP_LOGE(TAG, "Cannot register sensor '%s': maximum number of sensors (%d) reached", 
-                 name, MAX_SENSORS);
+                 display_name, MAX_SENSORS);
         if (sensors_mutex != NULL) {
             xSemaphoreGive(sensors_mutex);
         }
@@ -277,12 +277,29 @@ int sensors_register(const char *name, const char *unit) {
     
     int id = sensor_count++;
     
-    // Copy name and unit, ensuring null termination
-    strncpy(sensors[id].name, name, SENSOR_NAME_MAX_LEN - 1);
-    sensors[id].name[SENSOR_NAME_MAX_LEN - 1] = '\0';
+    // Copy name, unit, and metric_name, ensuring null termination
+    strncpy(sensors[id].display_name, display_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
+    sensors[id].display_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
     
     strncpy(sensors[id].unit, unit, SENSOR_UNIT_MAX_LEN - 1);
     sensors[id].unit[SENSOR_UNIT_MAX_LEN - 1] = '\0';
+    
+    if (metric_name && strlen(metric_name) > 0) {
+        strncpy(sensors[id].metric_name, metric_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
+        sensors[id].metric_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
+    } else {
+        // Auto-generate metric name from sensor display name if not provided
+        strncpy(sensors[id].metric_name, display_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
+        sensors[id].metric_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
+        // Convert to lowercase and replace spaces with underscores
+        for (char *p = sensors[id].metric_name; *p; p++) {
+            if (*p == ' ' || *p == '-') {
+                *p = '_';
+            } else if (*p >= 'A' && *p <= 'Z') {
+                *p = *p + ('a' - 'A');
+            }
+        }
+    }
     
     sensors[id].value = 0.0f;
     sensors[id].last_updated = 0;
@@ -290,7 +307,7 @@ int sensors_register(const char *name, const char *unit) {
     sensors[id].link_url[0] = '\0';
     sensors[id].link_text[0] = '\0';
     
-    ESP_LOGI(TAG, "Registered sensor %d: '%s' (%s)", id, sensors[id].name, sensors[id].unit);
+    ESP_LOGI(TAG, "Registered sensor %d: '%s' (%s) [metric: %s]", id, sensors[id].display_name, sensors[id].unit, sensors[id].metric_name);
     
     if (sensors_mutex != NULL) {
         xSemaphoreGive(sensors_mutex);
@@ -385,6 +402,17 @@ float sensors_get_value(int sensor_id, bool *available) {
     return value;
 }
 
+int sensors_get_count(void) {
+    return sensor_count;
+}
+
+const sensor_data_t* sensors_get_by_index(int index) {
+    if (index < 0 || index >= sensor_count) {
+        return NULL;
+    }
+    return &sensors[index];
+}
+
 
 // Cleanup task to mark stale sensors as unavailable
 static void sensor_cleanup_task(void *pvParameters) {
@@ -401,7 +429,7 @@ static void sensor_cleanup_task(void *pvParameters) {
                 time_t age = now - sensors[i].last_updated;
                 if (age > SENSOR_STALE_TIMEOUT_SECONDS) {
                     ESP_LOGW(TAG, "Sensor %d (%s) is stale (%ld seconds old), marking unavailable",
-                             i, sensors[i].name, (long)age);
+                             i, sensors[i].display_name, (long)age);
                     sensors[i].available = false;
                 }
             }
