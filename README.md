@@ -1,6 +1,6 @@
 # BTHome Prometheus Collector/Exporter + Local Sensor Platform
 
-This project provides a firmware image for esp32-based devices which can relay [bthome](https://bthome.io) measurements from Bluetooth-low-energy (BLE) and export them as prometheus metrics. Additionally, it exports measurements from a local load-cell (HX711) sensor as well operational data about the device.
+This project provides a firmware image for esp32-based devices which can relay [bthome](https://bthome.io) measurements from Bluetooth-low-energy (BLE) and export them as prometheus metrics. Additionally, it exports measurements from a local load-cell (HX711) sensor, DS18B20 temperatures sensors, [Atlas Scientific EZO-PMP](https://atlas-scientific.com/peristaltic/ezo-pmp/), as well operational data about the device.
 
 ## Features
 * Filtering BTHome metrics based on measurement type and MAC address
@@ -10,11 +10,13 @@ This project provides a firmware image for esp32-based devices which can relay [
 * Configurable WiFi connectivity with AP mode for configuration
 * Password protection for settings
 * Over-the-air updates
+* Log to remote syslog server
 
 ## Links
 * [BTHome](https://bthome.io)
 * [ESP-IDF HX711 Driver](https://components.espressif.com/components/esp-idf-lib/hx711/versions/1.0.6/readme?language=en)
 * [My BTHome Driver](https://components.espressif.com/components/jcodybaker/bthome/)
+* [Atlas Scientific EZO-PMP](https://atlas-scientific.com/peristaltic/ezo-pmp/)
 
 ## Screenshots
 ![Weight Page Screenshot](docs/assets/weight.png)
@@ -59,7 +61,5 @@ For BTHome sensors I've been using Shelly's:
 ![Weight Hardware Bottom View](docs/assets/hw-weight3.png)
 
 ## TODO
-* Timestamp measurements and expire stale data
-* Provide build without weight sensor requirement
 * Publish to MQTT
 * BTHome Encryption Support
