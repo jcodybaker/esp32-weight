@@ -293,6 +293,27 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         settings->temp_use_fahrenheit ? " checked" : "");
     httpd_resp_sendstr_chunk(req, buffer);
     
+    // Send syslog settings
+    httpd_resp_sendstr_chunk(req,
+        "<hr class='major'/>\n"
+        "<h2>Syslog Configuration</h2>\n");
+    
+    // Send syslog_server with current value
+    char *encoded_syslog_server = url_encode(settings->syslog_server);
+    snprintf(buffer, 1024,
+        "<label for='syslog_server'>Syslog Server (hostname or IP):</label>\n"
+        "<input type='text' id='syslog_server' name='syslog_server' value='%s' placeholder='syslog.example.com'>\n",
+        encoded_syslog_server ? encoded_syslog_server : "");
+    httpd_resp_sendstr_chunk(req, buffer);
+    free(encoded_syslog_server);
+    
+    // Send syslog_port with current value
+    snprintf(buffer, 1024,
+        "<label for='syslog_port'>Syslog Port:</label>\n"
+        "<input type='number' id='syslog_port' name='syslog_port' value='%u' min='1' max='65535'>\n",
+        settings->syslog_port);
+    httpd_resp_sendstr_chunk(req, buffer);
+    
     // Send BTHome object IDs multi-select
     httpd_resp_sendstr_chunk(req,
         "<hr class='minor'/>\n"
@@ -996,6 +1017,47 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
         ESP_LOGI(TAG, "Temperature unit setting unchanged");
     }
 
+    // Check and update syslog_server
+    if (httpd_query_key_value(query_buf, "syslog_server", param_buf, sizeof(param_buf)) == ESP_OK) {
+        url_decode(decoded_param, param_buf);  // Decode URL encoding
+        if (settings->syslog_server != NULL && strcmp(decoded_param, settings->syslog_server) == 0) {
+            ESP_LOGI(TAG, "Syslog server unchanged");
+            decoded_param[0] = '\0'; // Clear to avoid updating
+        }
+        if (strlen(decoded_param) > 0 || (settings->syslog_server != NULL && strlen(settings->syslog_server) > 0)) {
+            err = nvs_set_str(settings_handle, "syslog_server", decoded_param);
+            if (err == ESP_OK) {
+                if (settings->syslog_server != NULL) {
+                    free(settings->syslog_server);
+                }
+                settings->syslog_server = strdup(decoded_param);
+                updated = true;
+                restart_needed = true;
+                ESP_LOGI(TAG, "Updated syslog_server to %s", decoded_param);
+            } else {
+                ESP_LOGE(TAG, "Failed to write syslog_server to NVS: %s", esp_err_to_name(err));
+            }
+        }
+    }
+
+    // Check and update syslog_port
+    if (httpd_query_key_value(query_buf, "syslog_port", param_buf, sizeof(param_buf)) == ESP_OK) {
+        uint16_t syslog_port = (uint16_t)atoi(param_buf);
+        if (syslog_port > 0 && syslog_port != settings->syslog_port) {
+            err = nvs_set_u16(settings_handle, "syslog_port", syslog_port);
+            if (err == ESP_OK) {
+                settings->syslog_port = syslog_port;
+                updated = true;
+                restart_needed = true;
+                ESP_LOGI(TAG, "Updated syslog_port to %u", syslog_port);
+            } else {
+                ESP_LOGE(TAG, "Failed to write syslog_port to NVS: %s", esp_err_to_name(err));
+            }
+        } else {
+            ESP_LOGI(TAG, "Syslog port unchanged or invalid");
+        }
+    }
+
     // Check and update hostname
     if (httpd_query_key_value(query_buf, "hostname", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);  // Decode URL encoding
@@ -1479,6 +1541,8 @@ esp_err_t settings_init(settings_t *settings)
     settings->pump_sda_gpio = -1;
     settings->pump_i2c_addr = 0x37;
     settings->pump_dispense_ml = 100;  // Default 100ml
+    settings->syslog_server = NULL;
+    settings->syslog_port = 514;  // Default syslog port
     // Open NVS handle
     ESP_LOGI(TAG, "Opening Non-Volatile Storage (NVS) handle...");
     nvs_handle_t settings_handle;
@@ -1986,6 +2050,48 @@ esp_err_t settings_init(settings_t *settings)
             break;
         default:
             ESP_LOGE(TAG, "Error (%s) reading ds18b20_names!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'syslog_server' from NVS...");
+    err = nvs_get_str(settings_handle, "syslog_server", NULL, &str_size);
+    switch (err) {
+        case ESP_OK:
+            settings->syslog_server = malloc(str_size);
+            if (settings->syslog_server == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate memory for syslog_server");
+                return ESP_ERR_NO_MEM;
+            }
+            err = nvs_get_str(settings_handle, "syslog_server", settings->syslog_server, &str_size);
+            if (err != ESP_OK) {
+                ESP_LOGE(TAG, "Error (%s) reading syslog_server!", esp_err_to_name(err));
+                return err;
+            }
+            ESP_LOGI(TAG, "Read 'syslog_server' = '%s'", settings->syslog_server);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->syslog_server = strdup("");
+            ESP_LOGI(TAG, "No value for 'syslog_server'; using default = ''");
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading syslog_server!", esp_err_to_name(err));
+            return err;
+    }
+
+    ESP_LOGI(TAG, "Reading 'syslog_port' from NVS...");
+    uint16_t syslog_port_value;
+    err = nvs_get_u16(settings_handle, "syslog_port", &syslog_port_value);
+    switch (err) {
+        case ESP_OK:
+            settings->syslog_port = syslog_port_value;
+            ESP_LOGI(TAG, "Read 'syslog_port' = %u", settings->syslog_port);
+            break;
+        case ESP_ERR_NVS_NOT_FOUND:
+            settings->syslog_port = 514;  // Default syslog port
+            ESP_LOGI(TAG, "No value for 'syslog_port'; using default = %u", settings->syslog_port);
+            break;
+        default:
+            ESP_LOGE(TAG, "Error (%s) reading syslog_port!", esp_err_to_name(err));
             return err;
     }
 

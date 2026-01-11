@@ -46,6 +46,8 @@ typedef struct {
     int8_t pump_i2c_addr;              // Pump I2C device address
     int16_t pump_dispense_ml;          // Amount to dispense in ml
     bool temp_use_fahrenheit;          // Display temperatures in Fahrenheit (true) or Celsius (false)
+    char *syslog_server;               // Syslog server hostname or IP address
+    uint16_t syslog_port;              // Syslog server port (default 514)
 } settings_t;
 
 esp_err_t settings_init(settings_t *settings);

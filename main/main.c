@@ -20,6 +20,7 @@
 #include "temperature.h"
 #include "driver/i2c_master.h"
 #include "pump.h"
+#include "syslog.h"
 
 bool g_ntp_initialized = false;
 
@@ -40,6 +41,7 @@ void app_main(void)
 
     ESP_ERROR_CHECK(settings_init(settings));
     wifi_init(settings);
+    syslog_init(settings);  // Initialize syslog after WiFi
     httpd_handle_t http_server = http_server_init();
     settings_register(settings, http_server);
     sensors_init(settings, http_server);
