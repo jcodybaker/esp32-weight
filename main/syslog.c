@@ -30,7 +30,11 @@ static settings_t *g_settings = NULL;
 static int syslog_sock = -1;
 static struct sockaddr_in syslog_addr;
 static bool syslog_enabled = false;
-static syslog_msg_t msg;
+
+static syslog_msg_t send_msg;
+// These are heap allocated in syslog_task
+static syslog_msg_t *recv_msg = NULL;
+static char *syslog_packet = NULL;
 
 
 // Syslog facility and severity constants
@@ -69,26 +73,26 @@ static int custom_vprintf(const char *fmt, va_list args) {
         // Allocate message on heap
         
         // Format the message
-        vsnprintf(msg.message, SYSLOG_MAX_MSG_LEN, fmt, args);
+        vsnprintf(send_msg.message, SYSLOG_MAX_MSG_LEN, fmt, args);
         
         // Parse log level from ESP-IDF log format
         // ESP-IDF logs typically start with a level indicator like "E (123) TAG: message"
         int severity = SYSLOG_SEVERITY_INFO;
-        if (msg.message[0] == 'E' && msg.message[1] == ' ') {
+        if (send_msg.message[0] == 'E' && send_msg.message[1] == ' ') {
             severity = SYSLOG_SEVERITY_ERROR;
-        } else if (msg.message[0] == 'W' && msg.message[1] == ' ') {
+        } else if (send_msg.message[0] == 'W' && send_msg.message[1] == ' ') {
             severity = SYSLOG_SEVERITY_WARNING;
-        } else if (msg.message[0] == 'I' && msg.message[1] == ' ') {
+        } else if (send_msg.message[0] == 'I' && send_msg.message[1] == ' ') {
             severity = SYSLOG_SEVERITY_INFO;
-        } else if (msg.message[0] == 'D' && msg.message[1] == ' ') {
+        } else if (send_msg.message[0] == 'D' && send_msg.message[1] == ' ') {
             severity = SYSLOG_SEVERITY_DEBUG;
-        } else if (msg.message[0] == 'V' && msg.message[1] == ' ') {
+        } else if (send_msg.message[0] == 'V' && send_msg.message[1] == ' ') {
             severity = SYSLOG_SEVERITY_DEBUG;
         }
-        msg.priority = (SYSLOG_FACILITY_USER << 3) | severity;
+        send_msg.priority = (SYSLOG_FACILITY_USER << 3) | severity;
         
         // Try to send to queue (non-blocking to avoid deadlocks)
-        xQueueSend(syslog_queue, &msg, 0);
+        xQueueSend(syslog_queue, &send_msg, 0);
     }
 
     if (vprintf_mutex) {
@@ -99,17 +103,12 @@ static int custom_vprintf(const char *fmt, va_list args) {
 }
 
 static void syslog_task(void *pvParameters) {
-    syslog_msg_t msg;
-    char syslog_packet[SYSLOG_MAX_MSG_LEN + 100];
-    
     while (1) {
         // Wait for messages from the queue
-        if (xQueueReceive(syslog_queue, &msg, portMAX_DELAY) == pdTRUE) {
+        if (xQueueReceive(syslog_queue, &recv_msg, portMAX_DELAY) == pdTRUE) {
             // Check if syslog is still enabled and configured
             if (!syslog_enabled || !g_settings || !g_settings->syslog_server || 
                 strlen(g_settings->syslog_server) == 0) {
-                free(msg.message);  // Free the message
-                atomic_fetch_add(&free_count_syslog, 1);
                 continue;
             }
             
@@ -118,8 +117,6 @@ static void syslog_task(void *pvParameters) {
                 syslog_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
                 if (syslog_sock < 0) {
                     // ESP_LOGE(TAG, "Failed to create socket: errno %d", errno);
-                    free(msg.message);  // Free the message
-                    atomic_fetch_add(&free_count_syslog, 1);
                     vTaskDelay(pdMS_TO_TICKS(1000));
                     continue;
                 }
@@ -130,8 +127,7 @@ static void syslog_task(void *pvParameters) {
                     // ESP_LOGE(TAG, "Failed to resolve hostname: %s", g_settings->syslog_server);
                     close(syslog_sock);
                     syslog_sock = -1;
-                    free(msg.message);  // Free the message
-                    atomic_fetch_add(&free_count_syslog, 1);
+
                     vTaskDelay(pdMS_TO_TICKS(5000));
                     continue;
                 }
@@ -147,19 +143,15 @@ static void syslog_task(void *pvParameters) {
             
             // Format syslog message according to RFC 3164
             // <priority>timestamp hostname tag: message
-            snprintf(syslog_packet, sizeof(syslog_packet),
+            snprintf(syslog_packet, SYSLOG_MAX_MSG_LEN + 100,
                     "<%d>%s %s",
-                    msg.priority,
+                    recv_msg->priority,
                     hostname,
-                    msg.message);
+                    recv_msg->message);
             
             // Send UDP packet
             int sent = sendto(syslog_sock, syslog_packet, strlen(syslog_packet), 0,
                             (struct sockaddr *)&syslog_addr, sizeof(syslog_addr));
-            
-            // Free the message after sending (or attempting to send)
-            free(msg.message);
-            atomic_fetch_add(&free_count_syslog, 1);
             
             if (sent < 0) {
                 // ESP_LOGE(TAG, "Failed to send syslog message: errno %d", errno);
@@ -196,6 +188,11 @@ esp_err_t syslog_init(settings_t *settings) {
             return ESP_ERR_NO_MEM;
         }
     }
+
+    recv_msg = malloc(sizeof(syslog_msg_t));
+    syslog_packet = malloc(SYSLOG_MAX_MSG_LEN + 100);
+    atomic_fetch_add(&malloc_count_syslog, 2);
+    
     
     // Create message queue
     syslog_queue = xQueueCreate(SYSLOG_QUEUE_SIZE, sizeof(syslog_msg_t));
@@ -258,18 +255,23 @@ void syslog_deinit(void) {
     }
     
     // Delete queue and free any remaining messages
-    if (syslog_queue) {
-        syslog_msg_t msg;
+    if (syslog_queue != NULL) {
         // Drain the queue and free any remaining messages
-        while (xQueueReceive(syslog_queue, &msg, 0) == pdTRUE) {
-            free(msg.message);
-            atomic_fetch_add(&free_count_syslog, 1);
-        }
         vQueueDelete(syslog_queue);
         syslog_queue = NULL;
     }
     
     g_settings = NULL;
+    if (recv_msg != NULL) {
+        free(recv_msg);
+        atomic_fetch_add(&free_count_syslog, 1);
+        recv_msg = NULL;
+    }
+    if (syslog_packet != NULL) {
+        free(syslog_packet);
+        atomic_fetch_add(&free_count_syslog, 1);
+        syslog_packet = NULL;
+    }
     
     ESP_LOGI(TAG, "Syslog client deinitialized");
 }
