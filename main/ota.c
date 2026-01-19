@@ -84,10 +84,9 @@ void ota_task(void *pvParameter)
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = _http_event_handler,
         .keep_alive_enable = true,
-        .buffer_size = 8192,
+        .buffer_size = 4096,
         .buffer_size_tx = 2048,
     };
-
 
     esp_https_ota_config_t ota_config = {
         .http_config = &config,

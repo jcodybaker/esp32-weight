@@ -16,7 +16,7 @@
 static const char *TAG = "syslog";
 
 // Syslog message queue
-#define SYSLOG_QUEUE_SIZE 50
+#define SYSLOG_QUEUE_SIZE 10
 #define SYSLOG_MAX_MSG_LEN 1024
 
 typedef struct {
