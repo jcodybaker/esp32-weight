@@ -1120,11 +1120,17 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     // Check and update syslog_server
     if (httpd_query_key_value(query_buf, "syslog_server", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);  // Decode URL encoding
-        if (settings->syslog_server != NULL && strcmp(decoded_param, settings->syslog_server) == 0) {
-            ESP_LOGI(TAG, "Syslog server unchanged");
-            decoded_param[0] = '\0'; // Clear to avoid updating
+        // Only update if the value has actually changed
+        bool should_update = false;
+        if (settings->syslog_server == NULL || strlen(settings->syslog_server) == 0) {
+            // Currently empty, update if new value is not empty
+            should_update = (strlen(decoded_param) > 0);
+        } else {
+            // Currently has a value, update if new value is different
+            should_update = (strcmp(decoded_param, settings->syslog_server) != 0);
         }
-        if (strlen(decoded_param) > 0 || (settings->syslog_server != NULL && strlen(settings->syslog_server) > 0)) {
+        
+        if (should_update) {
             err = nvs_set_str(settings_handle, "syslog_server", decoded_param);
             if (err == ESP_OK) {
                 if (settings->syslog_server != NULL) {
@@ -1138,6 +1144,8 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write syslog_server to NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGI(TAG, "Syslog server unchanged");
         }
     }
 
@@ -1162,11 +1170,17 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
     // Check and update mqtt_broker_url
     if (httpd_query_key_value(query_buf, "mqtt_broker_url", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);
-        if (settings->mqtt_broker_url != NULL && strcmp(decoded_param, settings->mqtt_broker_url) == 0) {
-            ESP_LOGI(TAG, "MQTT broker URL unchanged");
-            decoded_param[0] = '\0';
+        // Only update if the value has actually changed
+        bool should_update = false;
+        if (settings->mqtt_broker_url == NULL || strlen(settings->mqtt_broker_url) == 0) {
+            // Currently empty, update if new value is not empty
+            should_update = (strlen(decoded_param) > 0);
+        } else {
+            // Currently has a value, update if new value is different
+            should_update = (strcmp(decoded_param, settings->mqtt_broker_url) != 0);
         }
-        if (strlen(decoded_param) > 0 || (settings->mqtt_broker_url != NULL && strlen(settings->mqtt_broker_url) > 0)) {
+        
+        if (should_update) {
             err = nvs_set_str(settings_handle, "mqtt_broker", decoded_param);
             if (err == ESP_OK) {
                 if (settings->mqtt_broker_url != NULL) {
@@ -1180,17 +1194,25 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write mqtt_broker_url to NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGI(TAG, "MQTT broker URL unchanged");
         }
     }
 
     // Check and update mqtt_username
     if (httpd_query_key_value(query_buf, "mqtt_username", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);
-        if (settings->mqtt_username != NULL && strcmp(decoded_param, settings->mqtt_username) == 0) {
-            ESP_LOGI(TAG, "MQTT username unchanged");
-            decoded_param[0] = '\0';
+        // Only update if the value has actually changed
+        bool should_update = false;
+        if (settings->mqtt_username == NULL || strlen(settings->mqtt_username) == 0) {
+            // Currently empty, update if new value is not empty
+            should_update = (strlen(decoded_param) > 0);
+        } else {
+            // Currently has a value, update if new value is different
+            should_update = (strcmp(decoded_param, settings->mqtt_username) != 0);
         }
-        if (strlen(decoded_param) > 0 || (settings->mqtt_username != NULL && strlen(settings->mqtt_username) > 0)) {
+        
+        if (should_update) {
             err = nvs_set_str(settings_handle, "mqtt_user", decoded_param);
             if (err == ESP_OK) {
                 if (settings->mqtt_username != NULL) {
@@ -1204,17 +1226,25 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write mqtt_username to NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGI(TAG, "MQTT username unchanged");
         }
     }
 
     // Check and update mqtt_password
     if (httpd_query_key_value(query_buf, "mqtt_password", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);
-        if (settings->mqtt_password != NULL && strcmp(decoded_param, settings->mqtt_password) == 0) {
-            ESP_LOGI(TAG, "MQTT password unchanged");
-            decoded_param[0] = '\0';
+        // Only update if the value has actually changed
+        bool should_update = false;
+        if (settings->mqtt_password == NULL || strlen(settings->mqtt_password) == 0) {
+            // Currently empty, update if new value is not empty
+            should_update = (strlen(decoded_param) > 0);
+        } else {
+            // Currently has a value, update if new value is different
+            should_update = (strcmp(decoded_param, settings->mqtt_password) != 0);
         }
-        if (strlen(decoded_param) > 0 || (settings->mqtt_password != NULL && strlen(settings->mqtt_password) > 0)) {
+        
+        if (should_update) {
             err = nvs_set_str(settings_handle, "mqtt_pass", decoded_param);
             if (err == ESP_OK) {
                 if (settings->mqtt_password != NULL) {
@@ -1228,17 +1258,25 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write mqtt_password to NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGI(TAG, "MQTT password unchanged");
         }
     }
 
     // Check and update mqtt_topic
     if (httpd_query_key_value(query_buf, "mqtt_topic", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);
-        if (settings->mqtt_topic != NULL && strcmp(decoded_param, settings->mqtt_topic) == 0) {
-            ESP_LOGI(TAG, "MQTT topic unchanged");
-            decoded_param[0] = '\0';
+        // Only update if the value has actually changed
+        bool should_update = false;
+        if (settings->mqtt_topic == NULL || strlen(settings->mqtt_topic) == 0) {
+            // Currently empty, update if new value is not empty
+            should_update = (strlen(decoded_param) > 0);
+        } else {
+            // Currently has a value, update if new value is different
+            should_update = (strcmp(decoded_param, settings->mqtt_topic) != 0);
         }
-        if (strlen(decoded_param) > 0 || (settings->mqtt_topic != NULL && strlen(settings->mqtt_topic) > 0)) {
+        
+        if (should_update) {
             err = nvs_set_str(settings_handle, "mqtt_topic", decoded_param);
             if (err == ESP_OK) {
                 if (settings->mqtt_topic != NULL) {
@@ -1252,17 +1290,25 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write mqtt_topic to NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGI(TAG, "MQTT topic unchanged");
         }
     }
 
     // Check and update mqtt_status_topic
     if (httpd_query_key_value(query_buf, "mqtt_status_topic", param_buf, sizeof(param_buf)) == ESP_OK) {
         url_decode(decoded_param, param_buf);
-        if (settings->mqtt_status_topic != NULL && strcmp(decoded_param, settings->mqtt_status_topic) == 0) {
-            ESP_LOGI(TAG, "MQTT status topic unchanged");
-            decoded_param[0] = '\0';
+        // Only update if the value has actually changed
+        bool should_update = false;
+        if (settings->mqtt_status_topic == NULL || strlen(settings->mqtt_status_topic) == 0) {
+            // Currently empty, update if new value is not empty
+            should_update = (strlen(decoded_param) > 0);
+        } else {
+            // Currently has a value, update if new value is different
+            should_update = (strcmp(decoded_param, settings->mqtt_status_topic) != 0);
         }
-        if (strlen(decoded_param) > 0 || (settings->mqtt_status_topic != NULL && strlen(settings->mqtt_status_topic) > 0)) {
+        
+        if (should_update) {
             err = nvs_set_str(settings_handle, "mqtt_status_topic", decoded_param);
             if (err == ESP_OK) {
                 if (settings->mqtt_status_topic != NULL) {
@@ -1276,6 +1322,8 @@ static esp_err_t settings_post_handler(httpd_req_t *req) {
             } else {
                 ESP_LOGE(TAG, "Failed to write mqtt_status_topic to NVS: %s", esp_err_to_name(err));
             }
+        } else {
+            ESP_LOGI(TAG, "MQTT status topic unchanged");
         }
     }
 
