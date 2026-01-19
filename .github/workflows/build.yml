@@ -42,7 +42,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: esp32-weight-station-${{ steps.version.outputs.version }}
+        name: esp32-sensor-station-${{ steps.version.outputs.version }}
         path: artifacts/
         retention-days: 90
     
