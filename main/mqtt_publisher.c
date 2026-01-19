@@ -356,7 +356,7 @@ esp_err_t mqtt_publish_single_sensor(int sensor_id)
     offset += snprintf(json + offset, json_size - offset, 
                       "\"unit\":\"%s\",", sensor->unit);
     offset += snprintf(json + offset, json_size - offset, 
-                      "\"value\":%.2f,", sensor->value);
+                      "\"value\":%.2f", sensor->value);
     
     // Add optional device name and ID
     if (sensor->device_name[0] != '\0') {

@@ -292,8 +292,12 @@ int sensors_register(
     int id = sensor_count++;
     
     // Copy name, unit, and metric_name, ensuring null termination
-    strncpy(sensors[id].display_name, display_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
-    sensors[id].display_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
+    if (display_name != NULL && strlen(display_name) > 0) {
+        strncpy(sensors[id].display_name, display_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
+        sensors[id].display_name[SENSOR_DISPLAY_NAME_MAX_LEN - 1] = '\0';
+    } else {
+        sensors[id].display_name[0] = '\0';
+    }
 
     if (device_name && strlen(device_name) > 0) {
         strncpy(sensors[id].device_name, device_name, SENSOR_DEVICE_NAME_MAX_LEN - 1);
@@ -309,8 +313,12 @@ int sensors_register(
         sensors[id].device_id[0] = '\0';
     }
     
-    strncpy(sensors[id].unit, unit, SENSOR_UNIT_MAX_LEN - 1);
-    sensors[id].unit[SENSOR_UNIT_MAX_LEN - 1] = '\0';
+    if (unit != NULL && strlen(unit) > 0) {
+        strncpy(sensors[id].unit, unit, SENSOR_UNIT_MAX_LEN - 1);
+        sensors[id].unit[SENSOR_UNIT_MAX_LEN - 1] = '\0';
+    } else {
+        sensors[id].unit[0] = '\0';
+    }
     
     if (metric_name && strlen(metric_name) > 0) {
         strncpy(sensors[id].metric_name, metric_name, SENSOR_DISPLAY_NAME_MAX_LEN - 1);
