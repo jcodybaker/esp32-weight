@@ -343,11 +343,6 @@ static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id)
         return -1;  // MAC not in enabled filters
     }
     
-    // Check if this object ID is selected in settings
-    if (!is_object_id_selected(object_id)) {
-        return -1;  // Object ID not selected
-    }
-    
     xSemaphoreTake(sensor_map_mutex, portMAX_DELAY);
     
     // Check if already registered
