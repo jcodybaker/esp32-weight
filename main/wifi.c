@@ -29,6 +29,8 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
+#include "ota.h"  // For OTA trigger function
+
 #if CONFIG_ESP_WPA3_SAE_PWE_HUNT_AND_PECK
 #define ESP_WIFI_SAE_MODE WPA3_SAE_PWE_HUNT_AND_PECK
 #define EXAMPLE_H2E_IDENTIFIER ""
@@ -201,6 +203,10 @@ static void event_handler(void* arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "got ip:" IPSTR, IP2STR(&event->ip_info.ip));
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+        
+        // Trigger OTA update if pending
+        ota_trigger_update_on_wifi_connect();
+        
         if (ap_active) {
             ap_watchdog_stop();
             ESP_ERROR_CHECK(esp_wifi_stop());

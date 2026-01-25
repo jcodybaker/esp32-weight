@@ -20,6 +20,7 @@
 #include "pump.h"
 #include "metrics.h"
 #include "mqtt_publisher.h"
+#include "ota.h"  // For OTA status
 
 static const char *TAG = "settings";
 
@@ -148,7 +149,23 @@ static esp_err_t settings_get_handler(httpd_req_t *req) {
         "</form>\n"
         "<form action='/reboot' method='POST' style='display: inline;'>\n"
         "<button type='submit' style='background: #ff9800;'>Reboot Device</button>\n"
-        "</form><br><br>\n"
+        "</form><br><br>\n");
+    
+    // Display OTA status if available
+    const char *ota_status = ota_get_last_status();
+    if (ota_status && strlen(ota_status) > 0) {
+        // Determine if it's a success or error message
+        bool is_success = (strstr(ota_status, "successful") != NULL);
+        const char *class_name = is_success ? "success" : "error";
+        
+        snprintf(buffer, 1024,
+            "<div class='%s' style='display: block;'>\n"
+            "<strong>Last OTA Status:</strong> %s\n"
+            "</div>\n", class_name, ota_status);
+        httpd_resp_sendstr_chunk(req, buffer);
+    }
+    
+    httpd_resp_sendstr_chunk(req,
         "<div id='message' class='message'></div>\n"
         "<form id='settingsForm'>\n"
         "<h2>General Configuration</h2>\n"

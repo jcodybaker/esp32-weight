@@ -42,16 +42,30 @@ void app_main(void)
     ESP_LOGI("main", "app_main settings ptr %p", settings);
 
     ESP_ERROR_CHECK(settings_init(settings));
+    
+    // Check if OTA update is pending
+    bool ota_mode = (ota_check_pending_update(settings) == ESP_OK);
+    
     wifi_init(settings);
     syslog_init(settings);  // Initialize syslog after WiFi
-    mqtt_publisher_init(settings);  // Initialize MQTT client after WiFi
+    
+    // Only initialize MQTT and sensors if NOT in OTA mode
+    if (!ota_mode) {
+        mqtt_publisher_init(settings);  // Initialize MQTT client after WiFi
+    }
+    
     httpd_handle_t http_server = http_server_init();
     settings_register(settings, http_server);
-    sensors_init(settings, http_server);
-    init_ds18b20(settings);
-    weight_init(settings);
+    
+    // Only initialize sensors if NOT in OTA mode
+    if (!ota_mode) {
+        sensors_init(settings, http_server);
+        init_ds18b20(settings);
+        weight_init(settings);
+        bthome_observer_init(settings, http_server);
+        pump_init(settings, http_server);
+    }
+    
     ota_init(settings, http_server);
     metrics_init(settings, http_server);
-    bthome_observer_init(settings, http_server);
-    pump_init(settings, http_server);
 }
