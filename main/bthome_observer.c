@@ -407,7 +407,11 @@ static int find_or_register_bthome_sensor(esp_bd_addr_t addr, uint8_t object_id)
     
     // Generate prometheus metric name
     char metric_name[128];
-    snprintf(metric_name, sizeof(metric_name), "bthome_%s", type_name ? type_name : "sensor");
+    if (object_id == BTHOME_SENSOR_TEMPERATURE_F) {
+        metric_name[0] = '\0';
+    } else {
+        snprintf(metric_name, sizeof(metric_name), "bthome_%s", type_name ? type_name : "sensor");
+    }
     // Replace spaces and hyphens with underscores, convert to lowercase
     for (char *p = metric_name; *p; p++) {
         if (*p == ' ' || *p == '-' || *p == ':') {
